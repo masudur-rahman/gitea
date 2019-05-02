@@ -18,7 +18,6 @@ import (
 
 	// Needed for jpeg support
 	_ "image/jpeg"
-	"image/png"
 	"os"
 	"path/filepath"
 	"strings"
@@ -42,6 +41,8 @@ import (
 	"github.com/nfnt/resize"
 	"golang.org/x/crypto/pbkdf2"
 	"golang.org/x/crypto/ssh"
+
+	_ "gocloud.dev/blob/gcsblob"
 )
 
 // UserType defines the user type
@@ -314,7 +315,7 @@ func (u *User) GenerateActivateCode() string {
 
 // CustomAvatarPath returns user custom avatar file path.
 func (u *User) CustomAvatarPath() string {
-	return filepath.Join(setting.AvatarUploadPath, u.Avatar)
+	return filepath.Join("data/avatars", u.Avatar)
 }
 
 // GenerateRandomAvatar generates a random avatar for user.
@@ -337,21 +338,13 @@ func (u *User) generateRandomAvatar(e Engine) error {
 	if u.Avatar == "" {
 		u.Avatar = fmt.Sprintf("%d", u.ID)
 	}
-	if err = os.MkdirAll(filepath.Dir(u.CustomAvatarPath()), os.ModePerm); err != nil {
-		return fmt.Errorf("MkdirAll: %v", err)
-	}
-	fw, err := os.Create(u.CustomAvatarPath())
-	if err != nil {
-		return fmt.Errorf("Create: %v", err)
-	}
-	defer fw.Close()
 
 	if _, err := e.ID(u.ID).Cols("avatar").Update(u); err != nil {
 		return err
 	}
 
-	if err = png.Encode(fw, img); err != nil {
-		return fmt.Errorf("Encode: %v", err)
+	if err = u.UploadAvatarToBucket(img); err != nil {
+		return err
 	}
 
 	log.Info("New random avatar created: %d", u.ID)
@@ -367,10 +360,10 @@ func (u *User) SizedRelAvatarLink(size int) string {
 
 	switch {
 	case u.UseCustomAvatar:
-		if !com.IsFile(u.CustomAvatarPath()) {
-			return base.DefaultAvatarLink()
+		if link, err := u.GetAvatarLinkFromBucket(); err == nil {
+			return link
 		}
-		return setting.AppSubURL + "/avatars/" + u.Avatar
+		return base.DefaultAvatarLink()
 	case setting.DisableGravatar, setting.OfflineMode:
 		if !com.IsFile(u.CustomAvatarPath()) {
 			if err := u.GenerateRandomAvatar(); err != nil {
@@ -482,23 +475,13 @@ func (u *User) UploadAvatar(data []byte) error {
 	}
 
 	u.UseCustomAvatar = true
-	u.Avatar = fmt.Sprintf("%x", md5.Sum(data))
+	u.Avatar = fmt.Sprintf("%v-%x", u.ID, md5.Sum(data))
 	if err = updateUser(sess, u); err != nil {
 		return fmt.Errorf("updateUser: %v", err)
 	}
 
-	if err := os.MkdirAll(setting.AvatarUploadPath, os.ModePerm); err != nil {
-		return fmt.Errorf("Failed to create dir %s: %v", setting.AvatarUploadPath, err)
-	}
-
-	fw, err := os.Create(u.CustomAvatarPath())
-	if err != nil {
-		return fmt.Errorf("Create: %v", err)
-	}
-	defer fw.Close()
-
-	if err = png.Encode(fw, m); err != nil {
-		return fmt.Errorf("Encode: %v", err)
+	if err = u.UploadAvatarToBucket(m); err != nil {
+		return err
 	}
 
 	return sess.Commit()
@@ -508,8 +491,8 @@ func (u *User) UploadAvatar(data []byte) error {
 func (u *User) DeleteAvatar() error {
 	log.Trace("DeleteAvatar[%d]: %s", u.ID, u.CustomAvatarPath())
 	if len(u.Avatar) > 0 {
-		if err := os.Remove(u.CustomAvatarPath()); err != nil {
-			return fmt.Errorf("Failed to remove %s: %v", u.CustomAvatarPath(), err)
+		if err := u.DeleteAvatarFromBucket(); err != nil {
+			return fmt.Errorf("failed to remove %s: %v", u.CustomAvatarPath(), err)
 		}
 	}
 
@@ -1126,11 +1109,8 @@ func deleteUser(e *xorm.Session, u *User) error {
 	}
 
 	if len(u.Avatar) > 0 {
-		avatarPath := u.CustomAvatarPath()
-		if com.IsExist(avatarPath) {
-			if err := os.Remove(avatarPath); err != nil {
-				return fmt.Errorf("Failed to remove %s: %v", avatarPath, err)
-			}
+		if err := u.DeleteAvatarFromBucket(); err != nil {
+			return fmt.Errorf("Failed to remove %s: %v", u.CustomAvatarPath(), err)
 		}
 	}
 
