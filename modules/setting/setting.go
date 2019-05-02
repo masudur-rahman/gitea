@@ -248,14 +248,15 @@ var (
 	}
 
 	// Picture settings
-	AvatarUploadPath      string
-	AvatarMaxWidth        int
-	AvatarMaxHeight       int
-	GravatarSource        string
-	GravatarSourceURL     *url.URL
-	DisableGravatar       bool
-	EnableFederatedAvatar bool
-	LibravatarService     *libravatar.Libravatar
+	AvatarUploadPath       string
+	AvatarUploadBucketPath = "data/avatars"
+	AvatarMaxWidth         int
+	AvatarMaxHeight        int
+	GravatarSource         string
+	GravatarSourceURL      *url.URL
+	DisableGravatar        bool
+	EnableFederatedAvatar  bool
+	LibravatarService      *libravatar.Libravatar
 
 	// Log settings
 	LogLevel           string
@@ -1009,4 +1010,5 @@ func NewServices() {
 	newNotifyMailService()
 	newWebhookService()
 	newIndexerService()
+	newFileStorage()
 }

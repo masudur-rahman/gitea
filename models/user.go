@@ -41,8 +41,6 @@ import (
 	"github.com/nfnt/resize"
 	"golang.org/x/crypto/pbkdf2"
 	"golang.org/x/crypto/ssh"
-
-	_ "gocloud.dev/blob/gcsblob"
 )
 
 // UserType defines the user type
@@ -315,7 +313,10 @@ func (u *User) GenerateActivateCode() string {
 
 // CustomAvatarPath returns user custom avatar file path.
 func (u *User) CustomAvatarPath() string {
-	return filepath.Join("data/avatars", u.Avatar)
+	if setting.FileStorage.SaveToBucket {
+		return filepath.Join(setting.AvatarUploadBucketPath, u.Avatar)
+	}
+	return filepath.Join(setting.AvatarUploadPath, u.Avatar)
 }
 
 // GenerateRandomAvatar generates a random avatar for user.
@@ -343,7 +344,7 @@ func (u *User) generateRandomAvatar(e Engine) error {
 		return err
 	}
 
-	if err = u.UploadAvatarToBucket(img); err != nil {
+	if err = u.SaveAvatar(img); err != nil {
 		return err
 	}
 
@@ -360,7 +361,7 @@ func (u *User) SizedRelAvatarLink(size int) string {
 
 	switch {
 	case u.UseCustomAvatar:
-		if link, err := u.GetAvatarLinkFromBucket(); err == nil {
+		if link, err := u.GetAvatarLink(); err == nil {
 			return link
 		}
 		return base.DefaultAvatarLink()
@@ -480,7 +481,7 @@ func (u *User) UploadAvatar(data []byte) error {
 		return fmt.Errorf("updateUser: %v", err)
 	}
 
-	if err = u.UploadAvatarToBucket(m); err != nil {
+	if err = u.SaveAvatar(m); err != nil {
 		return err
 	}
 
@@ -491,7 +492,7 @@ func (u *User) UploadAvatar(data []byte) error {
 func (u *User) DeleteAvatar() error {
 	log.Trace("DeleteAvatar[%d]: %s", u.ID, u.CustomAvatarPath())
 	if len(u.Avatar) > 0 {
-		if err := u.DeleteAvatarFromBucket(); err != nil {
+		if err := u.DeleteUserAvatar(); err != nil {
 			return fmt.Errorf("failed to remove %s: %v", u.CustomAvatarPath(), err)
 		}
 	}
@@ -1109,8 +1110,8 @@ func deleteUser(e *xorm.Session, u *User) error {
 	}
 
 	if len(u.Avatar) > 0 {
-		if err := u.DeleteAvatarFromBucket(); err != nil {
-			return fmt.Errorf("Failed to remove %s: %v", u.CustomAvatarPath(), err)
+		if err := u.DeleteUserAvatar(); err != nil {
+			return fmt.Errorf("failed to remove %s: %v", u.CustomAvatarPath(), err)
 		}
 	}
 

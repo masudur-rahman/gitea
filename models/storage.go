@@ -2,11 +2,14 @@ package models
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 
-	"github.com/pkg/errors"
+	"code.gitea.io/gitea/modules/setting"
 
-	"gopkg.in/ini.v1"
+	"github.com/Unknwon/com"
+
+	"github.com/pkg/errors"
 
 	"bytes"
 	"fmt"
@@ -14,48 +17,67 @@ import (
 	"image/png"
 
 	"gocloud.dev/blob"
+
+	// Google, Azure and S3 packages need to be imported
 	_ "gocloud.dev/blob/azureblob"
 	_ "gocloud.dev/blob/gcsblob"
 	_ "gocloud.dev/blob/s3blob"
 )
 
-// bucketStorage
-var (
-	Bucket    string
-	BucketURL string
-)
+// GetAvatarLink provides user avatar link whether it's stored in local or cloud storage
+func (u *User) GetAvatarLink() (string, error) {
+	if setting.FileStorage.SaveToBucket {
+		return u.getAvatarLinkFromBucket()
+	}
 
-func init() {
-	LoadStorageConfigs()
+	// Bucket storage not set
+	if !com.IsFile(u.CustomAvatarPath()) {
+		return "", errors.Errorf("file doesn't exist")
+	}
+
+	return setting.AppSubURL + "/avatars/" + u.Avatar, nil
 }
 
-func LoadStorageConfigs() {
-	Cfg := ini.Empty()
-	sec := Cfg.Section("storage")
-	Bucket = sec.Key("BUCKET").MustString("gs://gitea-appscode")
-	BucketURL = sec.Key("BUCKET_URL").MustString("https://storage.googleapis.com/gitea-appscode")
-
-	// Default Credential path for GoogleStorage => $HOME/.config/gcloud/application_default_credentials.json
-}
-
-func (u *User) GetAvatarLinkFromBucket() (string, error) {
+// getAvatarLinkFromBucket provides avatar link from cloud storage
+func (u *User) getAvatarLinkFromBucket() (string, error) {
 	ctx := context.Background()
 
-	bucket, err := blob.OpenBucket(ctx, Bucket)
+	bucket, err := blob.OpenBucket(ctx, setting.FileStorage.Bucket)
 	if err != nil {
 		return "", fmt.Errorf("Failed to setup bucket: %v", err)
 	}
 	exist, err := bucket.Exists(ctx, u.CustomAvatarPath())
 	if exist {
-		return filepath.Join(BucketURL, u.CustomAvatarPath()), nil
+		return filepath.Join(setting.FileStorage.BucketURL, u.CustomAvatarPath()), nil
 	}
 	return "", errors.Errorf("file doesn't exist, error %v", err)
 
 }
 
-func (u *User) UploadAvatarToBucket(img image.Image) error {
+// SaveAvatar saves avatar
+func (u *User) SaveAvatar(img image.Image) error {
+	if setting.FileStorage.SaveToBucket {
+		return u.uploadAvatarToBucket(img)
+	}
+
+	if err := os.MkdirAll(filepath.Dir(u.CustomAvatarPath()), os.ModePerm); err != nil {
+		return fmt.Errorf("MkdirAll: %v", err)
+	}
+	fw, err := os.Create(u.CustomAvatarPath())
+	if err != nil {
+		return fmt.Errorf("Create: %v", err)
+	}
+	defer fw.Close()
+	if err := png.Encode(fw, img); err != nil {
+		return fmt.Errorf("encode: %v", err)
+	}
+	return nil
+}
+
+// uploadAvatarToBucket stores user avatar to cloud storage
+func (u *User) uploadAvatarToBucket(img image.Image) error {
 	ctx := context.Background()
-	bucket, err := blob.OpenBucket(ctx, Bucket)
+	bucket, err := blob.OpenBucket(ctx, setting.FileStorage.Bucket)
 	if err != nil {
 		return fmt.Errorf("failed to setup bucket: %v", err)
 	}
@@ -81,9 +103,21 @@ func (u *User) UploadAvatarToBucket(img image.Image) error {
 	return nil
 }
 
-func (u *User) DeleteAvatarFromBucket() error {
+// DeleteUserAvatar deletes user avatar
+func (u *User) DeleteUserAvatar() error {
+	if setting.FileStorage.SaveToBucket {
+		return u.deleteAvatarFromBucket()
+	}
+	if err := os.Remove(u.CustomAvatarPath()); err != nil {
+		return fmt.Errorf("Failed to remove %s: %v", u.CustomAvatarPath(), err)
+	}
+	return nil
+}
+
+// deleteAvatarFromBucket deletes user avatar from cloud storage
+func (u *User) deleteAvatarFromBucket() error {
 	ctx := context.Background()
-	bucket, err := blob.OpenBucket(ctx, Bucket)
+	bucket, err := blob.OpenBucket(ctx, setting.FileStorage.Bucket)
 	if err != nil {
 		return fmt.Errorf("failed to setup bucket: %v", err)
 	}
