@@ -10,7 +10,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -204,22 +203,17 @@ func (g *GiteaLocalUploader) CreateReleases(releases ...*base.Release) error {
 			}
 			defer resp.Body.Close()
 
-			localPath := attach.LocalPath()
-			if err = os.MkdirAll(path.Dir(localPath), os.ModePerm); err != nil {
-				return fmt.Errorf("MkdirAll: %v", err)
+			buf := make([]byte, 1024)
+			n, _ := resp.Body.Read(buf)
+			if n > 0 {
+				buf = buf[:n]
 			}
-
-			fw, err := os.Create(localPath)
+			attachment, err := attach.UploadAttachmentToBucket(buf, resp.Body)
 			if err != nil {
-				return fmt.Errorf("Create: %v", err)
-			}
-			defer fw.Close()
-
-			if _, err := io.Copy(fw, resp.Body); err != nil {
 				return err
 			}
 
-			rel.Attachments = append(rel.Attachments, &attach)
+			rel.Attachments = append(rel.Attachments, attachment)
 		}
 
 		rels = append(rels, &rel)
