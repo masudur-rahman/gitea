@@ -1,14 +1,17 @@
 package lfs
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"io"
-	"os"
 	"path/filepath"
 
 	"code.gitea.io/gitea/models"
+	"code.gitea.io/gitea/modules/setting"
+
+	"gocloud.dev/blob"
 )
 
 var (
@@ -24,43 +27,45 @@ type ContentStore struct {
 // Get takes a Meta object and retrieves the content from the store, returning
 // it as an io.Reader. If fromByte > 0, the reader starts from that byte
 func (s *ContentStore) Get(meta *models.LFSMetaObject, fromByte int64) (io.ReadCloser, error) {
-	path := filepath.Join(s.BasePath, transformKey(meta.Oid))
-
-	f, err := os.Open(path)
+	ctx := context.Background()
+	bucket, err := blob.OpenBucket(ctx, setting.FileStorage.Bucket)
 	if err != nil {
 		return nil, err
 	}
-	if fromByte > 0 {
-		_, err = f.Seek(fromByte, os.SEEK_CUR)
+	bucket = blob.PrefixedBucket(bucket, s.BasePath+"/")
+
+	reader, err := bucket.NewRangeReader(ctx, transformKey(meta.Oid), fromByte, meta.Size-fromByte, nil)
+	if err != nil {
+		return nil, err
 	}
-	return f, err
+
+	return reader, nil
 }
 
 // Put takes a Meta object and an io.Reader and writes the content to the store.
 func (s *ContentStore) Put(meta *models.LFSMetaObject, r io.Reader) error {
-	path := filepath.Join(s.BasePath, transformKey(meta.Oid))
-	tmpPath := path + ".tmp"
-
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0750); err != nil {
-		return err
-	}
-
-	file, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0640)
+	ctx := context.Background()
+	bucket, err := blob.OpenBucket(ctx, setting.FileStorage.Bucket)
 	if err != nil {
 		return err
 	}
-	defer os.Remove(tmpPath)
+
+	bucket = blob.PrefixedBucket(bucket, s.BasePath+"/")
+	defer bucket.Close()
+
+	writer, err := bucket.NewWriter(ctx, transformKey(meta.Oid), nil)
+	if err != nil {
+		return err
+	}
+	defer writer.Close()
 
 	hash := sha256.New()
-	hw := io.MultiWriter(hash, file)
+	hw := io.MultiWriter(hash, writer)
 
 	written, err := io.Copy(hw, r)
 	if err != nil {
-		file.Close()
 		return err
 	}
-	file.Close()
 
 	if written != meta.Size {
 		return errSizeMismatch
@@ -71,27 +76,43 @@ func (s *ContentStore) Put(meta *models.LFSMetaObject, r io.Reader) error {
 		return errHashMismatch
 	}
 
-	return os.Rename(tmpPath, path)
+	return nil
 }
 
 // Exists returns true if the object exists in the content store.
 func (s *ContentStore) Exists(meta *models.LFSMetaObject) bool {
-	path := filepath.Join(s.BasePath, transformKey(meta.Oid))
-	if _, err := os.Stat(path); os.IsNotExist(err) {
+	ctx := context.Background()
+	bucket, err := blob.OpenBucket(ctx, setting.FileStorage.Bucket)
+	if err != nil {
 		return false
 	}
-	return true
+
+	bucket = blob.PrefixedBucket(bucket, s.BasePath+"/")
+	defer bucket.Close()
+
+	exist, _ := bucket.Exists(ctx, transformKey(meta.Oid))
+
+	return exist
 }
 
 // Verify returns true if the object exists in the content store and size is correct.
 func (s *ContentStore) Verify(meta *models.LFSMetaObject) (bool, error) {
-	path := filepath.Join(s.BasePath, transformKey(meta.Oid))
-
-	fi, err := os.Stat(path)
-	if os.IsNotExist(err) || err == nil && fi.Size() != meta.Size {
-		return false, nil
-	} else if err != nil {
+	ctx := context.Background()
+	bucket, err := blob.OpenBucket(ctx, setting.FileStorage.Bucket)
+	if err != nil {
 		return false, err
+	}
+	bucket = blob.PrefixedBucket(bucket, s.BasePath+"/")
+	defer bucket.Close()
+
+	reader, err := bucket.NewReader(ctx, transformKey(meta.Oid), nil)
+	if err != nil {
+		return false, err
+	}
+	defer reader.Close()
+
+	if reader.Size() != meta.Size {
+		return false, nil
 	}
 
 	return true, nil
