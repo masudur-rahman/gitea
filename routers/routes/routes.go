@@ -8,7 +8,6 @@ import (
 	"bytes"
 	"encoding/gob"
 	"net/http"
-	"os"
 	"path"
 	"text/template"
 	"time"
@@ -489,19 +488,19 @@ func RegisterRoutes(m *macaron.Macaron) {
 				return
 			}
 
-			fr, err := os.Open(attach.LocalPath())
+			reader, err := attach.GetAttachmentReader()
 			if err != nil {
 				ctx.ServerError("Open", err)
 				return
 			}
-			defer fr.Close()
+			defer reader.Close()
 
 			if err := attach.IncreaseDownloadCount(); err != nil {
 				ctx.ServerError("Update", err)
 				return
 			}
 
-			if err = repo.ServeData(ctx, attach.Name, fr); err != nil {
+			if err = repo.ServeData(ctx, attach.Name, reader); err != nil {
 				ctx.ServerError("ServeData", err)
 				return
 			}

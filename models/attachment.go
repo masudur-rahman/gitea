@@ -5,9 +5,9 @@
 package models
 
 import (
+	"context"
 	"fmt"
 	"io"
-	"os"
 	"path"
 
 	"code.gitea.io/gitea/modules/setting"
@@ -16,6 +16,7 @@ import (
 
 	"github.com/go-xorm/xorm"
 	gouuid "github.com/satori/go.uuid"
+	"gocloud.dev/blob"
 )
 
 // Attachment represent a attachment of issue/comment/release.
@@ -71,33 +72,41 @@ func (a *Attachment) DownloadURL() string {
 	return fmt.Sprintf("%sattachments/%s", setting.AppURL, a.UUID)
 }
 
+// uploadAttachmentToBucket uploads attachments to bucket
+func (attach *Attachment) UploadAttachmentToBucket(buf []byte, file io.Reader) (*Attachment, error) {
+	ctx := context.Background()
+	bucket, err := blob.OpenBucket(ctx, setting.FileStorage.Bucket)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to setup bucket: %v", err)
+	}
+	bucket = blob.PrefixedBucket(bucket, "data/attachments/")
+
+	bucketWriter, err := bucket.NewWriter(ctx, attach.LocalPath(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to obtain writer: %v", err)
+	}
+	var fileSize int64
+	if _, err = bucketWriter.Write(buf); err != nil {
+		return nil, fmt.Errorf("error occurred while writing: %v", err)
+	} else if fileSize, err = io.Copy(bucketWriter, file); err != nil {
+		return nil, fmt.Errorf("error occurred while copying: %v", err)
+	}
+	attach.Size = fileSize
+
+	if err = bucketWriter.Close(); err != nil {
+		return nil, fmt.Errorf("Failed to close: %v", err)
+	}
+	return attach, nil
+}
+
 // NewAttachment creates a new attachment object.
 func NewAttachment(attach *Attachment, buf []byte, file io.Reader) (_ *Attachment, err error) {
 	attach.UUID = gouuid.NewV4().String()
 
-	localPath := attach.LocalPath()
-	if err = os.MkdirAll(path.Dir(localPath), os.ModePerm); err != nil {
-		return nil, fmt.Errorf("MkdirAll: %v", err)
-	}
-
-	fw, err := os.Create(localPath)
+	attach, err = attach.UploadAttachmentToBucket(buf, file)
 	if err != nil {
-		return nil, fmt.Errorf("Create: %v", err)
+		return nil, err
 	}
-	defer fw.Close()
-
-	if _, err = fw.Write(buf); err != nil {
-		return nil, fmt.Errorf("Write: %v", err)
-	} else if _, err = io.Copy(fw, file); err != nil {
-		return nil, fmt.Errorf("Copy: %v", err)
-	}
-
-	// Update file size
-	var fi os.FileInfo
-	if fi, err = fw.Stat(); err != nil {
-		return nil, fmt.Errorf("file size: %v", err)
-	}
-	attach.Size = fi.Size()
 
 	if _, err := x.Insert(attach); err != nil {
 		return nil, err
@@ -185,6 +194,49 @@ func getAttachmentByReleaseIDFileName(e Engine, releaseID int64, fileName string
 	return attach, nil
 }
 
+// GetAttachmentReader provides attachment reader from bucket
+func (attach *Attachment) GetAttachmentReader() (io.ReadCloser, error) {
+	ctx := context.Background()
+	bucket, err := blob.OpenBucket(ctx, setting.FileStorage.Bucket)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to setup bucket %v", err)
+	}
+	bucket = blob.PrefixedBucket(bucket, "data/attachments/")
+
+	exist, err := bucket.Exists(ctx, attach.LocalPath())
+	if err != nil {
+		return nil, err
+	} else if !exist {
+		return nil, fmt.Errorf("Attachment not found")
+	}
+
+	reader, err := bucket.NewReader(ctx, attach.LocalPath(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return reader, nil
+}
+
+// deleteAttachmentFromBucket deletes attachments from bucket
+func (attach *Attachment) deleteAttachmentFromBucket() error {
+	ctx := context.Background()
+	bucket, err := blob.OpenBucket(ctx, setting.FileStorage.Bucket)
+	if err != nil {
+		return fmt.Errorf("Failed to setup bucket: %v", err)
+	}
+	bucket = blob.PrefixedBucket(bucket, "data/attachments/")
+
+	exist, err := bucket.Exists(ctx, attach.LocalPath())
+	if err != nil {
+		return err
+	} else if !exist {
+		return fmt.Errorf("repo avatar not found")
+	}
+
+	return bucket.Delete(ctx, attach.LocalPath())
+}
+
 // DeleteAttachment deletes the given attachment and optionally the associated file.
 func DeleteAttachment(a *Attachment, remove bool) error {
 	_, err := DeleteAttachments([]*Attachment{a}, remove)
@@ -209,7 +261,7 @@ func DeleteAttachments(attachments []*Attachment, remove bool) (int, error) {
 
 	if remove {
 		for i, a := range attachments {
-			if err := os.Remove(a.LocalPath()); err != nil {
+			if err := a.deleteAttachmentFromBucket(); err != nil {
 				return i, err
 			}
 		}
