@@ -2544,7 +2544,6 @@ func (repo *Repository) generateRandomAvatar(e Engine) error {
 	}
 
 	repo.Avatar = idToString
-
 	if err := repo.uploadAvatarToBucket(img); err != nil {
 		return err
 	}
@@ -2578,41 +2577,10 @@ func (repo *Repository) RelAvatarLink() string {
 	return repo.relAvatarLink(x)
 }
 
-// getAvatarLinkFromBucket returns repo avatar link from bucket
-func (repo *Repository) getAvatarLinkFromBucket() (string, error) {
-	ctx := context.Background()
-
-	bucket, err := blob.OpenBucket(ctx, setting.FileStorage.Bucket)
-	if err != nil {
-		return "", fmt.Errorf("Failed to setup bucket: %v", err)
-	}
-	bucket = blob.PrefixedBucket(bucket, setting.RepositoryAvatarUploadPath+"/")
-
-	exist, err := bucket.Exists(ctx, repo.Avatar)
-	if exist {
-		opts := &blob.SignedURLOptions{
-			Expiry: blob.DefaultSignedURLExpiry,
-		}
-		signedUrl, err := bucket.SignedURL(ctx, repo.Avatar, opts)
-		if err != nil {
-			return "", err
-		}
-		return signedUrl, nil
-	}
-	return "", fmt.Errorf("File doesn't exist, error %v", err)
-}
-
 func (repo *Repository) relAvatarLink(e Engine) string {
 	// If no avatar - path is empty
 	avatarPath := repo.CustomAvatarPath()
-
-	var avatarLink string
-	var err error
-
-	if len(avatarPath) > 0 {
-		avatarLink, err = repo.getAvatarLinkFromBucket()
-	}
-	if len(avatarPath) == 0 || err != nil {
+	if len(avatarPath) == 0 || !isAvatarValid(repo.CustomAvatarPath()) {
 		switch mode := setting.RepositoryAvatarFallback; mode {
 		case "image":
 			return setting.RepositoryAvatarFallbackImage
@@ -2620,13 +2588,12 @@ func (repo *Repository) relAvatarLink(e Engine) string {
 			if err := repo.generateRandomAvatar(e); err != nil {
 				log.Error("generateRandomAvatar: %v", err)
 			}
-			avatarLink, _ = repo.getAvatarLinkFromBucket()
 		default:
 			// default behaviour: do not display avatar
 			return ""
 		}
 	}
-	return avatarLink
+	return setting.AppSubURL + "/avatars?obj=" + repo.CustomAvatarPath()
 }
 
 // avatarLink returns user avatar absolute link.
@@ -2644,11 +2611,12 @@ func (repo *Repository) avatarLink(e Engine) string {
 // uploadAvatarToBucket uploads repo avatar to bucket
 func (repo *Repository) uploadAvatarToBucket(img image.Image) error {
 	ctx := context.Background()
-	bucket, err := blob.OpenBucket(ctx, setting.FileStorage.Bucket)
+	bucket, err := blob.OpenBucket(ctx, setting.FileStorage.BucketURL)
 	if err != nil {
-		return fmt.Errorf("failed to setup bucket: %v", err)
+		return fmt.Errorf("could not open bucket: %v", err)
 	}
-	bucket = blob.PrefixedBucket(bucket, setting.RepositoryAvatarUploadPath+"/")
+	bucket = blob.PrefixedBucket(bucket, setting.RepositoryAvatarUploadPath)
+	defer bucket.Close()
 
 	buf := new(bytes.Buffer)
 	if err = png.Encode(buf, img); err != nil {
@@ -2656,15 +2624,15 @@ func (repo *Repository) uploadAvatarToBucket(img image.Image) error {
 	}
 	imgData := buf.Bytes()
 
-	bucketWriter, err := bucket.NewWriter(ctx, repo.Avatar, nil)
+	bw, err := bucket.NewWriter(ctx, repo.Avatar, nil)
 	if err != nil {
 		return fmt.Errorf("failed to obtain writer: %v", err)
 	}
 
-	if _, err = bucketWriter.Write(imgData); err != nil {
-		return fmt.Errorf("error occurred: %v", err)
+	if _, err = bw.Write(imgData); err != nil {
+		return fmt.Errorf("failed to write: %v", err)
 	}
-	if err = bucketWriter.Close(); err != nil {
+	if err = bw.Close(); err != nil {
 		return fmt.Errorf("failed to close: %v", err)
 	}
 
@@ -2692,20 +2660,20 @@ func (repo *Repository) UploadAvatar(data []byte) error {
 	// Then repo will be removed - only it avatar file will be removed
 	newAvatar := fmt.Sprintf("%d-%x", repo.ID, md5.Sum(data))
 	repo.Avatar = newAvatar
+	if _, err := sess.ID(repo.ID).Cols("avatar").Update(repo); err != nil {
+		return fmt.Errorf("UploadAvatar: Update repository avatar: %v", err)
+	}
+
+	if err := repo.uploadAvatarToBucket(m); err != nil {
+		return err
+	}
+
 	if len(oldAvatarPath) > 0 && oldAvatarPath != repo.CustomAvatarPath() {
 		repo.Avatar = oldAvatar
 		if err := repo.deleteAvatarFromBucket(); err != nil {
 			log.Trace("DeleteOldAvatar: ", err)
 		}
-	}
-	repo.Avatar = newAvatar
-
-	if _, err := sess.ID(repo.ID).Cols("avatar").Update(repo); err != nil {
-		return fmt.Errorf("UploadAvatar: Update repository avatar: %v", err)
-	}
-
-	if err := repo.uploadAvatarToBucket(*m); err != nil {
-		return err
+		repo.Avatar = newAvatar
 	}
 
 	return sess.Commit()
@@ -2714,20 +2682,20 @@ func (repo *Repository) UploadAvatar(data []byte) error {
 // deleteAvatarFromBucket deletes repo avatar from bucket
 func (repo *Repository) deleteAvatarFromBucket() error {
 	ctx := context.Background()
-	bucket, err := blob.OpenBucket(ctx, setting.FileStorage.Bucket)
+	bucket, err := blob.OpenBucket(ctx, setting.FileStorage.BucketURL)
 	if err != nil {
-		return fmt.Errorf("Failed to setup bucket: %v", err)
+		return fmt.Errorf("could not open bucket: %v", err)
 	}
-	bucket = blob.PrefixedBucket(bucket, setting.RepositoryAvatarUploadPath+"/")
+	bucket = blob.PrefixedBucket(bucket, setting.RepositoryAvatarUploadPath)
+	defer bucket.Close()
 
 	exist, err := bucket.Exists(ctx, repo.Avatar)
 	if err != nil {
 		return err
-	} else if !exist {
-		return errors.New("Repo avatar not found")
+	} else if exist {
+		return bucket.Delete(ctx, repo.Avatar)
 	}
-
-	return bucket.Delete(ctx, repo.Avatar)
+	return nil
 }
 
 // DeleteAvatar deletes the repos's custom avatar.

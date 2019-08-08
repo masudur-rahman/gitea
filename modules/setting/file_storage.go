@@ -3,18 +3,21 @@ package setting
 import (
 	"os"
 
-	"github.com/davecgh/go-spew/spew"
+	"code.gitea.io/gitea/modules/log"
 )
 
-// FileStorage represents where to save avatars
+// FileStorage represents where to save avatars, attachments
 var FileStorage struct {
-	Bucket string
+	BucketURL string
 }
 
 func newFileStorage() {
 	sec := Cfg.Section("storage")
-	cwd, _ := os.Getwd()
-	FileStorage.Bucket = sec.Key("BUCKET").MustString("file://" + cwd) // Preferred: "gs://<bucket-name>?required_key1=required_value1&rq_k2=rq_v2"
+	cwd, err := os.Getwd()
+	if err != nil {
+		log.Fatal("fails to detect current working dir, err:%v", err)
+	}
+	// Preferred: "gs://<bucket-name>
 	// Default Credential path for GoogleStorage => $HOME/.config/gcloud/application_default_credentials.json
-	spew.Dump(FileStorage.Bucket)
+	FileStorage.BucketURL = sec.Key("BUCKET_URL").MustString("file://" + cwd)
 }

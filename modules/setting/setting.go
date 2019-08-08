@@ -425,6 +425,14 @@ func forcePathSeparator(path string) {
 	}
 }
 
+func suffixPathSeparator(path string) string {
+	path = strings.TrimSuffix(strings.TrimSpace(path), "/")
+	if path == "" {
+		return path
+	}
+	return path + "/"
+}
+
 // IsRunUserMatchCurrentUser returns false if configured run user does not match
 // actual user that runs the app. The first return value is the actual user name.
 // This check is ignored under Windows since SSH remote login is not the main
@@ -683,6 +691,8 @@ func NewContext() {
 		log.Fatal("Failed to map LFS settings: %v", err)
 	}
 	LFS.ContentPath = sec.Key("LFS_CONTENT_PATH").MustString(filepath.Join(AppDataPath, "lfs"))
+	forcePathSeparator(LFS.ContentPath)
+	LFS.ContentPath = suffixPathSeparator(LFS.ContentPath)
 
 	LFS.HTTPAuthExpiry = sec.Key("LFS_HTTP_AUTH_EXPIRY").MustDuration(20 * time.Minute)
 
@@ -779,6 +789,8 @@ func NewContext() {
 
 	sec = Cfg.Section("attachment")
 	AttachmentPath = sec.Key("PATH").MustString(path.Join(AppDataPath, "attachments"))
+	forcePathSeparator(AttachmentPath)
+	AttachmentPath = suffixPathSeparator(AttachmentPath)
 	AttachmentAllowedTypes = strings.Replace(sec.Key("ALLOWED_TYPES").MustString("image/jpeg,image/png,application/zip,application/gzip"), "|", ",", -1)
 	AttachmentMaxSize = sec.Key("MAX_SIZE").MustInt64(4)
 	AttachmentMaxFiles = sec.Key("MAX_FILES").MustInt(5)
@@ -843,8 +855,10 @@ func NewContext() {
 	sec = Cfg.Section("picture")
 	AvatarUploadPath = sec.Key("AVATAR_UPLOAD_PATH").MustString(path.Join(AppDataPath, "avatars"))
 	forcePathSeparator(AvatarUploadPath)
+	AvatarUploadPath = suffixPathSeparator(AvatarUploadPath)
 	RepositoryAvatarUploadPath = sec.Key("REPOSITORY_AVATAR_UPLOAD_PATH").MustString(path.Join(AppDataPath, "repo-avatars"))
 	forcePathSeparator(RepositoryAvatarUploadPath)
+	RepositoryAvatarUploadPath = suffixPathSeparator(RepositoryAvatarUploadPath)
 	RepositoryAvatarFallback = sec.Key("REPOSITORY_AVATAR_FALLBACK").MustString("none")
 	RepositoryAvatarFallbackImage = sec.Key("REPOSITORY_AVATAR_FALLBACK_IMAGE").MustString("/img/repo_default.png")
 	AvatarMaxWidth = sec.Key("AVATAR_MAX_WIDTH").MustInt(4096)

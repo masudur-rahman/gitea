@@ -219,7 +219,7 @@ func (g *GiteaLocalUploader) CreateReleases(releases ...*base.Release) error {
 			if n > 0 {
 				buf = buf[:n]
 			}
-			attachment, err := attach.UploadAttachmentToBucket(buf, resp.Body)
+			attachment, err := attach.UploadToBucket(buf, resp.Body)
 			if err != nil {
 				return err
 			}

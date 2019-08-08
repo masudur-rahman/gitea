@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"path/filepath"
 
@@ -28,13 +29,14 @@ type ContentStore struct {
 // it as an io.Reader. If fromByte > 0, the reader starts from that byte
 func (s *ContentStore) Get(meta *models.LFSMetaObject, fromByte int64) (io.ReadCloser, error) {
 	ctx := context.Background()
-	bucket, err := blob.OpenBucket(ctx, setting.FileStorage.Bucket)
+	bucket, err := blob.OpenBucket(ctx, setting.FileStorage.BucketURL)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("could not open bucket: %v", err)
 	}
-	bucket = blob.PrefixedBucket(bucket, s.BasePath+"/")
+	bucket = blob.PrefixedBucket(bucket, s.BasePath)
+	defer bucket.Close()
 
-	reader, err := bucket.NewRangeReader(ctx, transformKey(meta.Oid), fromByte, meta.Size-fromByte, nil)
+	reader, err := bucket.NewRangeReader(ctx, transformKey(meta.Oid), fromByte, -1, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -45,22 +47,21 @@ func (s *ContentStore) Get(meta *models.LFSMetaObject, fromByte int64) (io.ReadC
 // Put takes a Meta object and an io.Reader and writes the content to the store.
 func (s *ContentStore) Put(meta *models.LFSMetaObject, r io.Reader) error {
 	ctx := context.Background()
-	bucket, err := blob.OpenBucket(ctx, setting.FileStorage.Bucket)
+	bucket, err := blob.OpenBucket(ctx, setting.FileStorage.BucketURL)
 	if err != nil {
-		return err
+		return fmt.Errorf("could not open bucket: %v", err)
 	}
 
-	bucket = blob.PrefixedBucket(bucket, s.BasePath+"/")
+	bucket = blob.PrefixedBucket(bucket, s.BasePath)
 	defer bucket.Close()
 
-	writer, err := bucket.NewWriter(ctx, transformKey(meta.Oid), nil)
+	bw, err := bucket.NewWriter(ctx, transformKey(meta.Oid), nil)
 	if err != nil {
 		return err
 	}
-	defer writer.Close()
 
 	hash := sha256.New()
-	hw := io.MultiWriter(hash, writer)
+	hw := io.MultiWriter(hash, bw)
 
 	written, err := io.Copy(hw, r)
 	if err != nil {
@@ -76,33 +77,32 @@ func (s *ContentStore) Put(meta *models.LFSMetaObject, r io.Reader) error {
 		return errHashMismatch
 	}
 
-	return nil
+	return bw.Close()
 }
 
 // Exists returns true if the object exists in the content store.
 func (s *ContentStore) Exists(meta *models.LFSMetaObject) bool {
 	ctx := context.Background()
-	bucket, err := blob.OpenBucket(ctx, setting.FileStorage.Bucket)
+	bucket, err := blob.OpenBucket(ctx, setting.FileStorage.BucketURL)
 	if err != nil {
-		return false
+		return false // ignore error
 	}
 
-	bucket = blob.PrefixedBucket(bucket, s.BasePath+"/")
+	bucket = blob.PrefixedBucket(bucket, s.BasePath)
 	defer bucket.Close()
 
 	exist, _ := bucket.Exists(ctx, transformKey(meta.Oid))
-
 	return exist
 }
 
 // Verify returns true if the object exists in the content store and size is correct.
 func (s *ContentStore) Verify(meta *models.LFSMetaObject) (bool, error) {
 	ctx := context.Background()
-	bucket, err := blob.OpenBucket(ctx, setting.FileStorage.Bucket)
+	bucket, err := blob.OpenBucket(ctx, setting.FileStorage.BucketURL)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("could not open bucket: %v", err)
 	}
-	bucket = blob.PrefixedBucket(bucket, s.BasePath+"/")
+	bucket = blob.PrefixedBucket(bucket, s.BasePath)
 	defer bucket.Close()
 
 	reader, err := bucket.NewReader(ctx, transformKey(meta.Oid), nil)

@@ -362,29 +362,23 @@ func (u *User) generateRandomAvatar(e Engine) error {
 	return nil
 }
 
-func (u *User) getAvatarLink() (string, error) {
+// isAvatarValid checks if the avatarLink is valid
+func isAvatarValid(avatarLink string) bool {
 	ctx := context.Background()
 
-	bucket, err := blob.OpenBucket(ctx, setting.FileStorage.Bucket)
+	bucket, err := blob.OpenBucket(ctx, setting.FileStorage.BucketURL)
 	if err != nil {
-		return "", fmt.Errorf("Failed to setup bucket: %v", err)
+		log.Error("could not open bucket: %v", err)
+		return false
 	}
-	bucket = blob.PrefixedBucket(bucket, setting.AvatarUploadPath+"/")
+	defer bucket.Close()
 
-	exist, err := bucket.Exists(ctx, u.Avatar)
-	if exist {
-		opts := &blob.SignedURLOptions{
-			Expiry: blob.DefaultSignedURLExpiry,
-		}
-		signedUrl, err := bucket.SignedURL(ctx, u.Avatar, opts)
-		if err != nil {
-			return "", err
-		}
-
-		return signedUrl, nil
+	exist, err := bucket.Exists(ctx, avatarLink)
+	if err != nil {
+		log.Error(err.Error())
+		return false
 	}
-
-	return "", fmt.Errorf("file doesn't exist, error: %v", err)
+	return exist
 }
 
 // SizedRelAvatarLink returns a relative link to the user's avatar. When
@@ -396,18 +390,18 @@ func (u *User) SizedRelAvatarLink(size int) string {
 
 	switch {
 	case u.UseCustomAvatar:
-		if link, err := u.getAvatarLink(); err == nil {
-			return link
+		if !isAvatarValid(u.CustomAvatarPath()) {
+			return base.DefaultAvatarLink()
 		}
-		return base.DefaultAvatarLink()
+		return setting.AppSubURL + "/avatars?obj=" + u.CustomAvatarPath()
 	case setting.DisableGravatar, setting.OfflineMode:
-		if !com.IsFile(u.CustomAvatarPath()) {
+		if !isAvatarValid(u.CustomAvatarPath()) {
 			if err := u.GenerateRandomAvatar(); err != nil {
 				log.Error("GenerateRandomAvatar: %v", err)
 			}
 		}
 
-		return setting.AppSubURL + "/avatars/" + u.Avatar
+		return setting.AppSubURL + "/avatars?obj=" + u.CustomAvatarPath()
 	}
 	return base.SizedAvatarLink(u.AvatarEmail, size)
 }
@@ -509,28 +503,29 @@ func (u *User) IsPasswordSet() bool {
 // uploadAvatarToBucket uploads avatar to bucket
 func (u *User) uploadAvatarToBucket(img image.Image) error {
 	ctx := context.Background()
-	bucket, err := blob.OpenBucket(ctx, setting.FileStorage.Bucket)
+	bucket, err := blob.OpenBucket(ctx, setting.FileStorage.BucketURL)
 	if err != nil {
-		return fmt.Errorf("Failed to setup bucket: %v", err)
+		return fmt.Errorf("could not open bucket: %v", err)
 	}
-	bucket = blob.PrefixedBucket(bucket, setting.AvatarUploadPath+"/")
+	bucket = blob.PrefixedBucket(bucket, setting.AvatarUploadPath)
+	defer bucket.Close()
 
 	buf := new(bytes.Buffer)
 	if err = png.Encode(buf, img); err != nil {
-		return fmt.Errorf("Failed to encode: %v", err)
+		return fmt.Errorf("failed to encode: %v", err)
 	}
 	imgData := buf.Bytes()
 
-	bucketWriter, err := bucket.NewWriter(ctx, u.Avatar, nil)
+	bw, err := bucket.NewWriter(ctx, u.Avatar, nil)
 	if err != nil {
-		return fmt.Errorf("Failed to obtain writer: %v", err)
+		return fmt.Errorf("failed to obtain writer: %v", err)
 	}
 
-	if _, err = bucketWriter.Write(imgData); err != nil {
+	if _, err = bw.Write(imgData); err != nil {
 		return fmt.Errorf("error occurred: %v", err)
 	}
-	if err = bucketWriter.Close(); err != nil {
-		return fmt.Errorf("Failed to close: %v", err)
+	if err = bw.Close(); err != nil {
+		return fmt.Errorf("failed to close: %v", err)
 	}
 	return nil
 }
@@ -555,7 +550,7 @@ func (u *User) UploadAvatar(data []byte) error {
 		return fmt.Errorf("updateUser: %v", err)
 	}
 
-	if err := u.uploadAvatarToBucket(*m); err != nil {
+	if err := u.uploadAvatarToBucket(m); err != nil {
 		return err
 	}
 	return sess.Commit()
@@ -564,21 +559,18 @@ func (u *User) UploadAvatar(data []byte) error {
 // deleteAvatarFromBucket deletes user avatar from bucket
 func (u *User) deleteAvatarFromBucket() error {
 	ctx := context.Background()
-	bucket, err := blob.OpenBucket(ctx, setting.FileStorage.Bucket)
+	bucket, err := blob.OpenBucket(ctx, setting.FileStorage.BucketURL)
 	if err != nil {
-		return fmt.Errorf("Failed to setup bucket: %v", err)
+		return fmt.Errorf("could not open bucket: %v", err)
 	}
-	bucket = blob.PrefixedBucket(bucket, setting.AvatarUploadPath+"/")
+	bucket = blob.PrefixedBucket(bucket, setting.AvatarUploadPath)
+	defer bucket.Close()
 
 	exist, err := bucket.Exists(ctx, u.Avatar)
 	if err != nil {
 		return err
-	} else if !exist {
-		return fmt.Errorf("Avatar %s not found", u.Avatar)
-	}
-
-	if err := bucket.Delete(ctx, u.Avatar); err != nil {
-		return fmt.Errorf("Failed to remove %s: %v", u.Avatar, err)
+	} else if exist {
+		return bucket.Delete(ctx, u.Avatar)
 	}
 	return nil
 }
