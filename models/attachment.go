@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"path"
 
 	"code.gitea.io/gitea/modules/setting"
@@ -72,38 +73,44 @@ func (a *Attachment) DownloadURL() string {
 	return fmt.Sprintf("%sattachments/%s", setting.AppURL, a.UUID)
 }
 
-// uploadAttachmentToBucket uploads attachments to bucket
-func (attach *Attachment) UploadAttachmentToBucket(buf []byte, file io.Reader) (*Attachment, error) {
+// UploadToBucket uploads attachments to bucket
+func (a *Attachment) UploadToBucket(buf []byte, file io.Reader) (*Attachment, error) {
 	ctx := context.Background()
-	bucket, err := blob.OpenBucket(ctx, setting.FileStorage.Bucket)
+	bucket, err := blob.OpenBucket(ctx, setting.FileStorage.BucketURL)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to setup bucket: %v", err)
+		return nil, fmt.Errorf("could not open bucket: %v", err)
 	}
-	bucket = blob.PrefixedBucket(bucket, "data/attachments/")
+	bucket = blob.PrefixedBucket(bucket, setting.AttachmentPath)
+	defer bucket.Close()
 
-	bucketWriter, err := bucket.NewWriter(ctx, attach.LocalPath(), nil)
+	bw, err := bucket.NewWriter(ctx, a.LocalPath(), nil)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to obtain writer: %v", err)
+		return nil, fmt.Errorf("failed to obtain writer: %v", err)
 	}
-	var fileSize int64
-	if _, err = bucketWriter.Write(buf); err != nil {
+
+	if _, err = bw.Write(buf); err != nil {
 		return nil, fmt.Errorf("error occurred while writing: %v", err)
-	} else if fileSize, err = io.Copy(bucketWriter, file); err != nil {
+	} else if _, err = io.Copy(bw, file); err != nil {
 		return nil, fmt.Errorf("error occurred while copying: %v", err)
 	}
-	attach.Size = fileSize
-
-	if err = bucketWriter.Close(); err != nil {
-		return nil, fmt.Errorf("Failed to close: %v", err)
+	if err = bw.Close(); err != nil {
+		return nil, fmt.Errorf("failed to close: %v", err)
 	}
-	return attach, nil
+
+	attrs, err := bucket.Attributes(ctx, a.LocalPath())
+	if err != nil {
+		return nil, fmt.Errorf("failed to read attributes: %v", err)
+	}
+	a.Size = attrs.Size
+
+	return a, nil
 }
 
 // NewAttachment creates a new attachment object.
 func NewAttachment(attach *Attachment, buf []byte, file io.Reader) (_ *Attachment, err error) {
 	attach.UUID = gouuid.NewV4().String()
 
-	attach, err = attach.UploadAttachmentToBucket(buf, file)
+	attach, err = attach.UploadToBucket(buf, file)
 	if err != nil {
 		return nil, err
 	}
@@ -194,47 +201,44 @@ func getAttachmentByReleaseIDFileName(e Engine, releaseID int64, fileName string
 	return attach, nil
 }
 
-// GetAttachmentReader provides attachment reader from bucket
-func (attach *Attachment) GetAttachmentReader() (io.ReadCloser, error) {
+// Open provides attachment reader from bucket
+func (a *Attachment) Open() (io.ReadCloser, error) {
 	ctx := context.Background()
-	bucket, err := blob.OpenBucket(ctx, setting.FileStorage.Bucket)
+	bucket, err := blob.OpenBucket(ctx, setting.FileStorage.BucketURL)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to setup bucket %v", err)
+		return nil, fmt.Errorf("could not open bucket %v", err)
 	}
-	bucket = blob.PrefixedBucket(bucket, "data/attachments/")
+	bucket = blob.PrefixedBucket(bucket, setting.AttachmentPath)
+	defer bucket.Close()
 
-	exist, err := bucket.Exists(ctx, attach.LocalPath())
+	exist, err := bucket.Exists(ctx, a.LocalPath())
 	if err != nil {
 		return nil, err
 	} else if !exist {
-		return nil, fmt.Errorf("Attachment not found")
+		return nil, os.ErrNotExist
 	}
 
-	reader, err := bucket.NewReader(ctx, attach.LocalPath(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return reader, nil
+	return bucket.NewReader(ctx, a.LocalPath(), nil)
 }
 
-// deleteAttachmentFromBucket deletes attachments from bucket
-func (attach *Attachment) deleteAttachmentFromBucket() error {
+// deleteFromBucket deletes attachments from bucket
+func (a *Attachment) deleteFromBucket() error {
 	ctx := context.Background()
-	bucket, err := blob.OpenBucket(ctx, setting.FileStorage.Bucket)
+	bucket, err := blob.OpenBucket(ctx, setting.FileStorage.BucketURL)
 	if err != nil {
-		return fmt.Errorf("Failed to setup bucket: %v", err)
+		return fmt.Errorf("could not open bucket: %v", err)
 	}
-	bucket = blob.PrefixedBucket(bucket, "data/attachments/")
+	bucket = blob.PrefixedBucket(bucket, setting.AttachmentPath)
+	defer bucket.Close()
 
-	exist, err := bucket.Exists(ctx, attach.LocalPath())
+	exist, err := bucket.Exists(ctx, a.LocalPath())
 	if err != nil {
 		return err
 	} else if !exist {
-		return fmt.Errorf("repo avatar not found")
+		return os.ErrNotExist
 	}
 
-	return bucket.Delete(ctx, attach.LocalPath())
+	return bucket.Delete(ctx, a.LocalPath())
 }
 
 // DeleteAttachment deletes the given attachment and optionally the associated file.
@@ -261,7 +265,7 @@ func DeleteAttachments(attachments []*Attachment, remove bool) (int, error) {
 
 	if remove {
 		for i, a := range attachments {
-			if err := a.deleteAttachmentFromBucket(); err != nil {
+			if err := a.deleteFromBucket(); err != nil {
 				return i, err
 			}
 		}

@@ -46,7 +46,7 @@ import (
 	"github.com/go-macaron/toolbox"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/tstranex/u2f"
-	macaron "gopkg.in/macaron.v1"
+	"gopkg.in/macaron.v1"
 )
 
 type routerLoggerOptions struct {
@@ -146,18 +146,9 @@ func NewMacaron() *macaron.Macaron {
 			ExpiresAfter: time.Hour * 6,
 		},
 	))
-	m.Use(public.StaticHandler(
-		setting.AvatarUploadPath,
-		&public.Options{
+	m.Use(public.AvatarHandler(
+		&public.AvatarOptions{
 			Prefix:       "avatars",
-			SkipLogging:  setting.DisableRouterLog,
-			ExpiresAfter: time.Hour * 6,
-		},
-	))
-	m.Use(public.StaticHandler(
-		setting.RepositoryAvatarUploadPath,
-		&public.Options{
-			Prefix:       "repo-avatars",
 			SkipLogging:  setting.DisableRouterLog,
 			ExpiresAfter: time.Hour * 6,
 		},
@@ -488,7 +479,7 @@ func RegisterRoutes(m *macaron.Macaron) {
 				return
 			}
 
-			reader, err := attach.GetAttachmentReader()
+			reader, err := attach.Open()
 			if err != nil {
 				ctx.ServerError("Open", err)
 				return
