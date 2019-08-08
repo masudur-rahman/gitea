@@ -350,7 +350,7 @@ func (u *User) generateRandomAvatar(e Engine) error {
 		u.Avatar = fmt.Sprintf("%d", u.ID)
 	}
 
-	if err := u.uploadAvatarToBucket(img); err != nil {
+	if err := uploadImage(setting.AvatarUploadPath, u.Avatar, img); err != nil {
 		return err
 	}
 
@@ -500,14 +500,14 @@ func (u *User) IsPasswordSet() bool {
 	return len(u.Passwd) > 0
 }
 
-// uploadAvatarToBucket uploads avatar to bucket
-func (u *User) uploadAvatarToBucket(img image.Image) error {
+// uploadImage uploads avatar to bucket
+func uploadImage(bucketPrefix, objKey string, img image.Image) error {
 	ctx := context.Background()
 	bucket, err := blob.OpenBucket(ctx, setting.FileStorage.BucketURL)
 	if err != nil {
 		return fmt.Errorf("could not open bucket: %v", err)
 	}
-	bucket = blob.PrefixedBucket(bucket, setting.AvatarUploadPath)
+	bucket = blob.PrefixedBucket(bucket, bucketPrefix)
 	defer bucket.Close()
 
 	buf := new(bytes.Buffer)
@@ -516,7 +516,7 @@ func (u *User) uploadAvatarToBucket(img image.Image) error {
 	}
 	imgData := buf.Bytes()
 
-	bw, err := bucket.NewWriter(ctx, u.Avatar, nil)
+	bw, err := bucket.NewWriter(ctx, objKey, nil)
 	if err != nil {
 		return fmt.Errorf("failed to obtain writer: %v", err)
 	}
@@ -550,7 +550,7 @@ func (u *User) UploadAvatar(data []byte) error {
 		return fmt.Errorf("updateUser: %v", err)
 	}
 
-	if err := u.uploadAvatarToBucket(m); err != nil {
+	if err := uploadImage(setting.AvatarUploadPath, u.Avatar, m); err != nil {
 		return err
 	}
 	return sess.Commit()
