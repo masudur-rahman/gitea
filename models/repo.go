@@ -12,11 +12,9 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
-	"image"
 
 	// Needed for jpeg support
 	_ "image/jpeg"
-	"image/png"
 	"io/ioutil"
 	"net/url"
 	"os"
@@ -2544,7 +2542,7 @@ func (repo *Repository) generateRandomAvatar(e Engine) error {
 	}
 
 	repo.Avatar = idToString
-	if err := repo.uploadAvatarToBucket(img); err != nil {
+	if err := uploadImage(setting.RepositoryAvatarUploadPath, repo.Avatar, img); err != nil {
 		return err
 	}
 
@@ -2608,37 +2606,6 @@ func (repo *Repository) avatarLink(e Engine) string {
 	return link
 }
 
-// uploadAvatarToBucket uploads repo avatar to bucket
-func (repo *Repository) uploadAvatarToBucket(img image.Image) error {
-	ctx := context.Background()
-	bucket, err := blob.OpenBucket(ctx, setting.FileStorage.BucketURL)
-	if err != nil {
-		return fmt.Errorf("could not open bucket: %v", err)
-	}
-	bucket = blob.PrefixedBucket(bucket, setting.RepositoryAvatarUploadPath)
-	defer bucket.Close()
-
-	buf := new(bytes.Buffer)
-	if err = png.Encode(buf, img); err != nil {
-		return fmt.Errorf("failed to encode: %v", err)
-	}
-	imgData := buf.Bytes()
-
-	bw, err := bucket.NewWriter(ctx, repo.Avatar, nil)
-	if err != nil {
-		return fmt.Errorf("failed to obtain writer: %v", err)
-	}
-
-	if _, err = bw.Write(imgData); err != nil {
-		return fmt.Errorf("failed to write: %v", err)
-	}
-	if err = bw.Close(); err != nil {
-		return fmt.Errorf("failed to close: %v", err)
-	}
-
-	return nil
-}
-
 // UploadAvatar saves custom avatar for repository.
 // FIXME: split uploads to different subdirs in case we have massive number of repos.
 func (repo *Repository) UploadAvatar(data []byte) error {
@@ -2664,7 +2631,7 @@ func (repo *Repository) UploadAvatar(data []byte) error {
 		return fmt.Errorf("UploadAvatar: Update repository avatar: %v", err)
 	}
 
-	if err := repo.uploadAvatarToBucket(m); err != nil {
+	if err := uploadImage(setting.RepositoryAvatarUploadPath, repo.Avatar, m); err != nil {
 		return err
 	}
 
