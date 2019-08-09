@@ -1842,7 +1842,7 @@ func DeleteRepository(doer *User, uid, repoID int64) error {
 		return err
 	}
 	for j := range attachments {
-		attachmentPaths = append(attachmentPaths, attachments[j].LocalPath())
+		attachmentPaths = append(attachmentPaths, attachments[j].AttachmentBasePath())
 	}
 
 	if _, err = sess.In("issue_id", deleteCond).
@@ -1879,7 +1879,14 @@ func DeleteRepository(doer *User, uid, repoID int64) error {
 
 	// Remove attachment files.
 	for i := range attachmentPaths {
-		removeAllWithNotice(sess, "Delete attachment", attachmentPaths[i])
+		if err := removeAllFromBucket(setting.AttachmentPath, attachmentPaths[i]); err != nil {
+			title, attachPath := "Delete attachment", setting.AttachmentPath+attachmentPaths[i]
+			desc := fmt.Sprintf("%s [%s]: %v", title, attachPath, err)
+			log.Warn(title+" [%s]: %v", attachPath, err)
+			if err = createNotice(sess, NoticeRepository, desc); err != nil {
+				log.Error("CreateRepositoryNotice: %v", err)
+			}
+		}
 	}
 
 	// Remove LFS objects
@@ -1900,6 +1907,14 @@ func DeleteRepository(doer *User, uid, repoID int64) error {
 
 		oidPath := filepath.Join(v.Oid[0:2], v.Oid[2:4], v.Oid[4:len(v.Oid)])
 		removeAllWithNotice(sess, "Delete orphaned LFS file", oidPath)
+		if err := removeAllFromBucket(setting.LFS.ContentPath, oidPath); err != nil {
+			title := "Delete attachment"
+			desc := fmt.Sprintf("%s [%s]: %v", title, oidPath, err)
+			log.Warn(title+" [%s]: %v", oidPath, err)
+			if err = createNotice(sess, NoticeRepository, desc); err != nil {
+				log.Error("CreateRepositoryNotice: %v", err)
+			}
+		}
 	}
 
 	if _, err := sess.Delete(&LFSMetaObject{RepositoryID: repoID}); err != nil {
@@ -2578,7 +2593,7 @@ func (repo *Repository) RelAvatarLink() string {
 func (repo *Repository) relAvatarLink(e Engine) string {
 	// If no avatar - path is empty
 	avatarPath := repo.CustomAvatarPath()
-	if len(avatarPath) == 0 || !isAvatarValid(repo.CustomAvatarPath()) {
+	if len(avatarPath) == 0 || !IsAvatarValid(setting.RepositoryAvatarUploadPath, repo.Avatar) {
 		switch mode := setting.RepositoryAvatarFallback; mode {
 		case "image":
 			return setting.RepositoryAvatarFallbackImage
@@ -2648,12 +2663,24 @@ func (repo *Repository) UploadAvatar(data []byte) error {
 
 // deleteAvatarFromBucket deletes repo avatar from bucket
 func (repo *Repository) deleteAvatarFromBucket() error {
+	var bucket *blob.Bucket
+	var err error
 	ctx := context.Background()
-	bucket, err := blob.OpenBucket(ctx, setting.FileStorage.BucketURL)
-	if err != nil {
-		return fmt.Errorf("could not open bucket: %v", err)
+	if filepath.IsAbs(setting.RepositoryAvatarUploadPath) {
+		if err := os.MkdirAll(setting.RepositoryAvatarUploadPath, 0700); err != nil {
+			log.Fatal("Failed to create '%s': %v", setting.RepositoryAvatarUploadPath, err)
+		}
+		bucket, err = blob.OpenBucket(ctx, "file://"+setting.RepositoryAvatarUploadPath)
+		if err != nil {
+			return fmt.Errorf("could not open bucket: %v", err)
+		}
+	} else {
+		bucket, err = blob.OpenBucket(ctx, setting.FileStorage.BucketURL)
+		if err != nil {
+			return fmt.Errorf("could not open bucket: %v", err)
+		}
+		bucket = blob.PrefixedBucket(bucket, setting.RepositoryAvatarUploadPath)
 	}
-	bucket = blob.PrefixedBucket(bucket, setting.RepositoryAvatarUploadPath)
 	defer bucket.Close()
 
 	exist, err := bucket.Exists(ctx, repo.Avatar)

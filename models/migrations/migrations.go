@@ -17,10 +17,12 @@ import (
 	"strings"
 	"time"
 
+	"code.gitea.io/gitea/models"
+
 	"github.com/Unknwon/com"
 	"github.com/go-xorm/xorm"
 	gouuid "github.com/satori/go.uuid"
-	ini "gopkg.in/ini.v1"
+	"gopkg.in/ini.v1"
 
 	"code.gitea.io/gitea/modules/generate"
 	"code.gitea.io/gitea/modules/log"
@@ -587,7 +589,7 @@ func attachmentRefactor(x *xorm.Engine) error {
 
 	attachments := make([]*Attachment, 0, len(results))
 	for _, attach := range results {
-		if !com.IsExist(string(attach["path"])) {
+		if models.IsAvatarValid(setting.AttachmentPath, string(attach["path"])) {
 			// If the attachment is already missing, there is no point to update it.
 			continue
 		}
@@ -638,14 +640,16 @@ func attachmentRefactor(x *xorm.Engine) error {
 		log.Info("Failed to rename some attachments, old and new paths are saved into: %s", dumpPath)
 	}()
 	for _, attach := range attachments {
-		if err = os.MkdirAll(path.Dir(attach.NewPath), os.ModePerm); err != nil {
-			isSucceed = false
-			return err
-		}
+		if filepath.IsAbs(setting.AttachmentPath) {
+			if err = os.MkdirAll(path.Dir(attach.NewPath), os.ModePerm); err != nil {
+				isSucceed = false
+				return err
+			}
 
-		if err = os.Rename(attach.Path, attach.NewPath); err != nil {
-			isSucceed = false
-			return err
+			if err = os.Rename(attach.Path, attach.NewPath); err != nil {
+				isSucceed = false
+				return err
+			}
 		}
 	}
 
