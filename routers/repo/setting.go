@@ -25,7 +25,6 @@ import (
 	"code.gitea.io/gitea/modules/validation"
 	"code.gitea.io/gitea/routers/utils"
 
-	"github.com/Unknwon/com"
 	"mvdan.cc/xurls/v2"
 )
 
@@ -746,7 +745,7 @@ func UpdateAvatarSetting(ctx *context.Context, form auth.AvatarForm) error {
 		// No avatar is uploaded and we not removing it here.
 		// No random avatar generated here.
 		// Just exit, no action.
-		if !com.IsFile(ctxRepo.CustomAvatarPath()) {
+		if !models.IsAvatarValid(setting.RepositoryAvatarUploadPath, ctxRepo.Avatar) {
 			log.Trace("No avatar was uploaded for repo: %d. Default icon will appear instead.", ctxRepo.ID)
 		}
 		return nil

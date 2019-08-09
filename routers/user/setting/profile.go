@@ -18,7 +18,6 @@ import (
 	"code.gitea.io/gitea/modules/log"
 	"code.gitea.io/gitea/modules/setting"
 
-	"github.com/Unknwon/com"
 	"github.com/Unknwon/i18n"
 )
 
@@ -141,7 +140,7 @@ func UpdateAvatarSetting(ctx *context.Context, form auth.AvatarForm, ctxUser *mo
 		if err = ctxUser.UploadAvatar(data); err != nil {
 			return fmt.Errorf("UploadAvatar: %v", err)
 		}
-	} else if ctxUser.UseCustomAvatar && !com.IsFile(ctxUser.CustomAvatarPath()) {
+	} else if ctxUser.UseCustomAvatar && !models.IsAvatarValid(setting.AvatarUploadPath, ctxUser.Avatar) {
 		// No avatar is uploaded but setting has been changed to enable,
 		// generate a random one when needed.
 		if err := ctxUser.GenerateRandomAvatar(); err != nil {

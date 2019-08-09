@@ -690,15 +690,17 @@ func NewContext() {
 	if err = sec.MapTo(&LFS); err != nil {
 		log.Fatal("Failed to map LFS settings: %v", err)
 	}
-	LFS.ContentPath = sec.Key("LFS_CONTENT_PATH").MustString(filepath.Join(AppDataPath, "lfs"))
+	LFS.ContentPath = sec.Key("LFS_CONTENT_PATH").MustString(filepath.Join("data", "lfs"))
 	forcePathSeparator(LFS.ContentPath)
 	LFS.ContentPath = suffixPathSeparator(LFS.ContentPath)
 
 	LFS.HTTPAuthExpiry = sec.Key("LFS_HTTP_AUTH_EXPIRY").MustDuration(20 * time.Minute)
 
 	if LFS.StartServer {
-		if err := os.MkdirAll(LFS.ContentPath, 0700); err != nil {
-			log.Fatal("Failed to create '%s': %v", LFS.ContentPath, err)
+		if filepath.IsAbs(LFS.ContentPath) {
+			if err := os.MkdirAll(LFS.ContentPath, 0700); err != nil {
+				log.Fatal("Failed to create '%s': %v", LFS.ContentPath, err)
+			}
 		}
 
 		LFS.JWTSecretBytes = make([]byte, 32)
@@ -788,7 +790,7 @@ func NewContext() {
 	DBConnectBackoff = Cfg.Section("database").Key("DB_RETRY_BACKOFF").MustDuration(3 * time.Second)
 
 	sec = Cfg.Section("attachment")
-	AttachmentPath = sec.Key("PATH").MustString(path.Join(AppDataPath, "attachments"))
+	AttachmentPath = sec.Key("PATH").MustString(path.Join("data", "attachments"))
 	forcePathSeparator(AttachmentPath)
 	AttachmentPath = suffixPathSeparator(AttachmentPath)
 	AttachmentAllowedTypes = strings.Replace(sec.Key("ALLOWED_TYPES").MustString("image/jpeg,image/png,application/zip,application/gzip"), "|", ",", -1)
@@ -853,10 +855,10 @@ func NewContext() {
 	newRepository()
 
 	sec = Cfg.Section("picture")
-	AvatarUploadPath = sec.Key("AVATAR_UPLOAD_PATH").MustString(path.Join(AppDataPath, "avatars"))
+	AvatarUploadPath = sec.Key("AVATAR_UPLOAD_PATH").MustString(path.Join("data", "avatars"))
 	forcePathSeparator(AvatarUploadPath)
 	AvatarUploadPath = suffixPathSeparator(AvatarUploadPath)
-	RepositoryAvatarUploadPath = sec.Key("REPOSITORY_AVATAR_UPLOAD_PATH").MustString(path.Join(AppDataPath, "repo-avatars"))
+	RepositoryAvatarUploadPath = sec.Key("REPOSITORY_AVATAR_UPLOAD_PATH").MustString(path.Join("data", "repo-avatars"))
 	forcePathSeparator(RepositoryAvatarUploadPath)
 	RepositoryAvatarUploadPath = suffixPathSeparator(RepositoryAvatarUploadPath)
 	RepositoryAvatarFallback = sec.Key("REPOSITORY_AVATAR_FALLBACK").MustString("none")

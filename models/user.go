@@ -362,18 +362,31 @@ func (u *User) generateRandomAvatar(e Engine) error {
 	return nil
 }
 
-// isAvatarValid checks if the avatarLink is valid
-func isAvatarValid(avatarLink string) bool {
+// IsAvatarValid checks if the avatarLink is valid
+func IsAvatarValid(avatarUploadPath, objKey string) bool {
+	var bucket *blob.Bucket
+	var err error
 	ctx := context.Background()
-
-	bucket, err := blob.OpenBucket(ctx, setting.FileStorage.BucketURL)
-	if err != nil {
-		log.Error("could not open bucket: %v", err)
-		return false
+	if filepath.IsAbs(avatarUploadPath) {
+		if err := os.MkdirAll(setting.AvatarUploadPath, 0700); err != nil {
+			log.Fatal("Failed to create '%s': %v", setting.AvatarUploadPath, err)
+		}
+		bucket, err = blob.OpenBucket(ctx, "file://"+avatarUploadPath)
+		if err != nil {
+			log.Error("could not open bucket: %v", err)
+			return false
+		}
+	} else {
+		bucket, err = blob.OpenBucket(ctx, setting.FileStorage.BucketURL)
+		if err != nil {
+			log.Error("could not open bucket: %v", err)
+			return false
+		}
+		bucket = blob.PrefixedBucket(bucket, avatarUploadPath)
 	}
 	defer bucket.Close()
 
-	exist, err := bucket.Exists(ctx, avatarLink)
+	exist, err := bucket.Exists(ctx, objKey)
 	if err != nil {
 		log.Error(err.Error())
 		return false
@@ -390,12 +403,12 @@ func (u *User) SizedRelAvatarLink(size int) string {
 
 	switch {
 	case u.UseCustomAvatar:
-		if !isAvatarValid(u.CustomAvatarPath()) {
+		if !IsAvatarValid(setting.AvatarUploadPath, u.Avatar) {
 			return base.DefaultAvatarLink()
 		}
 		return setting.AppSubURL + "/avatars?obj=" + u.CustomAvatarPath()
 	case setting.DisableGravatar, setting.OfflineMode:
-		if !isAvatarValid(u.CustomAvatarPath()) {
+		if !IsAvatarValid(setting.AvatarUploadPath, u.Avatar) {
 			if err := u.GenerateRandomAvatar(); err != nil {
 				log.Error("GenerateRandomAvatar: %v", err)
 			}
@@ -501,13 +514,25 @@ func (u *User) IsPasswordSet() bool {
 }
 
 // uploadImage uploads avatar to bucket
-func uploadImage(bucketPrefix, objKey string, img image.Image) error {
+func uploadImage(avatarUploadPath, objKey string, img image.Image) error {
+	var bucket *blob.Bucket
+	var err error
 	ctx := context.Background()
-	bucket, err := blob.OpenBucket(ctx, setting.FileStorage.BucketURL)
-	if err != nil {
-		return fmt.Errorf("could not open bucket: %v", err)
+	if filepath.IsAbs(avatarUploadPath) {
+		if err := os.MkdirAll(avatarUploadPath, 0700); err != nil {
+			log.Fatal("Failed to create '%s': %v", avatarUploadPath, err)
+		}
+		bucket, err = blob.OpenBucket(ctx, "file://"+avatarUploadPath)
+		if err != nil {
+			return fmt.Errorf("could not open bucket: %v", err)
+		}
+	} else {
+		bucket, err = blob.OpenBucket(ctx, setting.FileStorage.BucketURL)
+		if err != nil {
+			return fmt.Errorf("could not open bucket: %v", err)
+		}
+		bucket = blob.PrefixedBucket(bucket, avatarUploadPath)
 	}
-	bucket = blob.PrefixedBucket(bucket, bucketPrefix)
 	defer bucket.Close()
 
 	buf := new(bytes.Buffer)
@@ -558,12 +583,24 @@ func (u *User) UploadAvatar(data []byte) error {
 
 // deleteAvatarFromBucket deletes user avatar from bucket
 func (u *User) deleteAvatarFromBucket() error {
+	var bucket *blob.Bucket
+	var err error
 	ctx := context.Background()
-	bucket, err := blob.OpenBucket(ctx, setting.FileStorage.BucketURL)
-	if err != nil {
-		return fmt.Errorf("could not open bucket: %v", err)
+	if filepath.IsAbs(setting.AvatarUploadPath) {
+		if err := os.MkdirAll(setting.AvatarUploadPath, 0700); err != nil {
+			log.Fatal("Failed to create '%s': %v", setting.AvatarUploadPath, err)
+		}
+		bucket, err = blob.OpenBucket(ctx, "file://"+setting.AvatarUploadPath)
+		if err != nil {
+			return fmt.Errorf("could not open bucket: %v", err)
+		}
+	} else {
+		bucket, err = blob.OpenBucket(ctx, setting.FileStorage.BucketURL)
+		if err != nil {
+			return fmt.Errorf("could not open bucket: %v", err)
+		}
+		bucket = blob.PrefixedBucket(bucket, setting.AvatarUploadPath)
 	}
-	bucket = blob.PrefixedBucket(bucket, setting.AvatarUploadPath)
 	defer bucket.Close()
 
 	exist, err := bucket.Exists(ctx, u.Avatar)
