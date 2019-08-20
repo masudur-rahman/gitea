@@ -11,6 +11,8 @@ import (
 	"os"
 	"strings"
 
+	"code.gitea.io/gitea/modules/setting"
+
 	"code.gitea.io/gitea/modules/log"
 	"code.gitea.io/gitea/modules/structs"
 
@@ -274,7 +276,7 @@ func deleteOrg(e *xorm.Session, u *User) error {
 
 	if len(u.Avatar) > 0 {
 		avatarPath := u.CustomAvatarPath()
-		if err := u.deleteAvatarFromBucket(); err != nil {
+		if err := deleteAvatarFromBucket(setting.AvatarUploadPath, u.Avatar); err != nil {
 			return fmt.Errorf("Failed to remove %s: %v", avatarPath, err)
 		}
 	}
