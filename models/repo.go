@@ -7,7 +7,6 @@ package models
 
 import (
 	"bytes"
-	"context"
 	"crypto/md5"
 	"errors"
 	"fmt"
@@ -38,7 +37,6 @@ import (
 
 	"github.com/Unknwon/com"
 	"github.com/go-xorm/xorm"
-	"gocloud.dev/blob"
 	ini "gopkg.in/ini.v1"
 	"xorm.io/builder"
 )
@@ -1950,7 +1948,7 @@ func DeleteRepository(doer *User, uid, repoID int64) error {
 	}
 
 	if len(repo.Avatar) > 0 {
-		if err := repo.deleteAvatarFromBucket(); err != nil {
+		if err := deleteAvatarFromBucket(setting.RepositoryAvatarUploadPath, repo.Avatar); err != nil {
 			return err
 		}
 	}
@@ -2652,44 +2650,13 @@ func (repo *Repository) UploadAvatar(data []byte) error {
 
 	if len(oldAvatarPath) > 0 && oldAvatarPath != repo.CustomAvatarPath() {
 		repo.Avatar = oldAvatar
-		if err := repo.deleteAvatarFromBucket(); err != nil {
+		if err := deleteAvatarFromBucket(setting.RepositoryAvatarUploadPath, repo.Avatar); err != nil {
 			log.Trace("DeleteOldAvatar: ", err)
 		}
 		repo.Avatar = newAvatar
 	}
 
 	return sess.Commit()
-}
-
-// deleteAvatarFromBucket deletes repo avatar from bucket
-func (repo *Repository) deleteAvatarFromBucket() error {
-	var bucket *blob.Bucket
-	var err error
-	ctx := context.Background()
-	if filepath.IsAbs(setting.RepositoryAvatarUploadPath) {
-		if err := os.MkdirAll(setting.RepositoryAvatarUploadPath, 0700); err != nil {
-			log.Fatal("Failed to create '%s': %v", setting.RepositoryAvatarUploadPath, err)
-		}
-		bucket, err = blob.OpenBucket(ctx, "file://"+setting.RepositoryAvatarUploadPath)
-		if err != nil {
-			return fmt.Errorf("could not open bucket: %v", err)
-		}
-	} else {
-		bucket, err = blob.OpenBucket(ctx, setting.FileStorage.BucketURL)
-		if err != nil {
-			return fmt.Errorf("could not open bucket: %v", err)
-		}
-		bucket = blob.PrefixedBucket(bucket, setting.RepositoryAvatarUploadPath)
-	}
-	defer bucket.Close()
-
-	exist, err := bucket.Exists(ctx, repo.Avatar)
-	if err != nil {
-		return err
-	} else if exist {
-		return bucket.Delete(ctx, repo.Avatar)
-	}
-	return nil
 }
 
 // DeleteAvatar deletes the repos's custom avatar.
@@ -2709,7 +2676,7 @@ func (repo *Repository) DeleteAvatar() error {
 		return err
 	}
 
-	if err := repo.deleteAvatarFromBucket(); err != nil {
+	if err := deleteAvatarFromBucket(setting.RepositoryAvatarUploadPath, repo.Avatar); err != nil {
 		return err
 	}
 

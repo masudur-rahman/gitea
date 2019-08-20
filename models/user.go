@@ -6,18 +6,14 @@
 package models
 
 import (
-	"bytes"
 	"container/list"
-	"context"
 	"crypto/md5"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"image"
 	_ "image/jpeg" // Needed for jpeg support
-	"image/png"
 	"os"
 	"path/filepath"
 	"strings"
@@ -37,7 +33,6 @@ import (
 
 	"github.com/Unknwon/com"
 	"github.com/go-xorm/xorm"
-	"gocloud.dev/blob"
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/crypto/pbkdf2"
@@ -362,38 +357,6 @@ func (u *User) generateRandomAvatar(e Engine) error {
 	return nil
 }
 
-// IsAvatarValid checks if the avatarLink is valid
-func IsAvatarValid(avatarUploadPath, objKey string) bool {
-	var bucket *blob.Bucket
-	var err error
-	ctx := context.Background()
-	if filepath.IsAbs(avatarUploadPath) {
-		if err := os.MkdirAll(setting.AvatarUploadPath, 0700); err != nil {
-			log.Fatal("Failed to create '%s': %v", setting.AvatarUploadPath, err)
-		}
-		bucket, err = blob.OpenBucket(ctx, "file://"+avatarUploadPath)
-		if err != nil {
-			log.Error("could not open bucket: %v", err)
-			return false
-		}
-	} else {
-		bucket, err = blob.OpenBucket(ctx, setting.FileStorage.BucketURL)
-		if err != nil {
-			log.Error("could not open bucket: %v", err)
-			return false
-		}
-		bucket = blob.PrefixedBucket(bucket, avatarUploadPath)
-	}
-	defer bucket.Close()
-
-	exist, err := bucket.Exists(ctx, objKey)
-	if err != nil {
-		log.Error(err.Error())
-		return false
-	}
-	return exist
-}
-
 // SizedRelAvatarLink returns a relative link to the user's avatar. When
 // applicable, the link is for an avatar of the indicated size (in pixels).
 func (u *User) SizedRelAvatarLink(size int) string {
@@ -513,48 +476,6 @@ func (u *User) IsPasswordSet() bool {
 	return len(u.Passwd) > 0
 }
 
-// uploadImage uploads avatar to bucket
-func uploadImage(avatarUploadPath, objKey string, img image.Image) error {
-	var bucket *blob.Bucket
-	var err error
-	ctx := context.Background()
-	if filepath.IsAbs(avatarUploadPath) {
-		if err := os.MkdirAll(avatarUploadPath, 0700); err != nil {
-			log.Fatal("Failed to create '%s': %v", avatarUploadPath, err)
-		}
-		bucket, err = blob.OpenBucket(ctx, "file://"+avatarUploadPath)
-		if err != nil {
-			return fmt.Errorf("could not open bucket: %v", err)
-		}
-	} else {
-		bucket, err = blob.OpenBucket(ctx, setting.FileStorage.BucketURL)
-		if err != nil {
-			return fmt.Errorf("could not open bucket: %v", err)
-		}
-		bucket = blob.PrefixedBucket(bucket, avatarUploadPath)
-	}
-	defer bucket.Close()
-
-	buf := new(bytes.Buffer)
-	if err = png.Encode(buf, img); err != nil {
-		return fmt.Errorf("failed to encode: %v", err)
-	}
-	imgData := buf.Bytes()
-
-	bw, err := bucket.NewWriter(ctx, objKey, nil)
-	if err != nil {
-		return fmt.Errorf("failed to obtain writer: %v", err)
-	}
-
-	if _, err = bw.Write(imgData); err != nil {
-		return fmt.Errorf("error occurred: %v", err)
-	}
-	if err = bw.Close(); err != nil {
-		return fmt.Errorf("failed to close: %v", err)
-	}
-	return nil
-}
-
 // UploadAvatar saves custom avatar for user.
 // FIXME: split uploads to different subdirs in case we have massive users.
 func (u *User) UploadAvatar(data []byte) error {
@@ -581,42 +502,11 @@ func (u *User) UploadAvatar(data []byte) error {
 	return sess.Commit()
 }
 
-// deleteAvatarFromBucket deletes user avatar from bucket
-func (u *User) deleteAvatarFromBucket() error {
-	var bucket *blob.Bucket
-	var err error
-	ctx := context.Background()
-	if filepath.IsAbs(setting.AvatarUploadPath) {
-		if err := os.MkdirAll(setting.AvatarUploadPath, 0700); err != nil {
-			log.Fatal("Failed to create '%s': %v", setting.AvatarUploadPath, err)
-		}
-		bucket, err = blob.OpenBucket(ctx, "file://"+setting.AvatarUploadPath)
-		if err != nil {
-			return fmt.Errorf("could not open bucket: %v", err)
-		}
-	} else {
-		bucket, err = blob.OpenBucket(ctx, setting.FileStorage.BucketURL)
-		if err != nil {
-			return fmt.Errorf("could not open bucket: %v", err)
-		}
-		bucket = blob.PrefixedBucket(bucket, setting.AvatarUploadPath)
-	}
-	defer bucket.Close()
-
-	exist, err := bucket.Exists(ctx, u.Avatar)
-	if err != nil {
-		return err
-	} else if exist {
-		return bucket.Delete(ctx, u.Avatar)
-	}
-	return nil
-}
-
 // DeleteAvatar deletes the user's custom avatar.
 func (u *User) DeleteAvatar() error {
 	log.Trace("DeleteAvatar[%d]: %s", u.ID, u.CustomAvatarPath())
 	if len(u.Avatar) > 0 {
-		if err := u.deleteAvatarFromBucket(); err != nil {
+		if err := deleteAvatarFromBucket(setting.AvatarUploadPath, u.Avatar); err != nil {
 			return err
 		}
 	}
@@ -1236,7 +1126,7 @@ func deleteUser(e *xorm.Session, u *User) error {
 	}
 
 	if len(u.Avatar) > 0 {
-		if err := u.deleteAvatarFromBucket(); err != nil {
+		if err := deleteAvatarFromBucket(setting.AvatarUploadPath, u.Avatar); err != nil {
 			return err
 		}
 	}
