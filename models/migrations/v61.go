@@ -13,12 +13,6 @@ import (
 	"code.gitea.io/gitea/modules/setting"
 
 	"github.com/go-xorm/xorm"
-
-	// Google, Azure and S3 packages for bucket storage
-	_ "gocloud.dev/blob/azureblob"
-	_ "gocloud.dev/blob/fileblob"
-	_ "gocloud.dev/blob/gcsblob"
-	_ "gocloud.dev/blob/s3blob"
 )
 
 func addSizeToAttachment(x *xorm.Engine) error {

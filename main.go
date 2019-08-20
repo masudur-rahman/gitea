@@ -24,12 +24,6 @@ import (
 	// for embed
 	_ "github.com/shurcooL/vfsgen"
 
-	// Google, Azure and S3 packages for bucket storage
-	_ "gocloud.dev/blob/azureblob"
-	_ "gocloud.dev/blob/fileblob"
-	_ "gocloud.dev/blob/gcsblob"
-	_ "gocloud.dev/blob/s3blob"
-
 	"github.com/urfave/cli"
 )
 
