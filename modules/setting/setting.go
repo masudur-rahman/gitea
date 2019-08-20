@@ -1043,6 +1043,7 @@ func loadOrGenerateInternalToken(sec *ini.Section) string {
 	return token
 }
 
+// OpenBucket returns the bucket associated to path parameter
 func OpenBucket(ctx context.Context, path string) (*blob.Bucket, error) {
 	if filepath.IsAbs(path) {
 		if err := os.MkdirAll(path, 0700); err != nil {
