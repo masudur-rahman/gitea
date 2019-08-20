@@ -57,7 +57,7 @@ func (opts *AvatarOptions) handle(ctx *macaron.Context, log *log.Logger) bool {
 
 	if filepath.IsAbs(objPath) {
 		if err := os.MkdirAll(bucketURL, 0700); err != nil {
-			log.Fatal("Failed to create '%s': %v", bucketURL, err)
+			log.Fatalf("Failed to create '%s': %v", bucketURL, err)
 		}
 		bucket, err = blob.OpenBucket(ctx.Req.Context(), "file://"+bucketURL)
 		if err != nil {
