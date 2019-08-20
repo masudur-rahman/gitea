@@ -6,6 +6,7 @@
 package setting
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -31,6 +32,7 @@ import (
 	"github.com/Unknwon/com"
 	shellquote "github.com/kballard/go-shellquote"
 	version "github.com/mcuadros/go-version"
+	"gocloud.dev/blob"
 	ini "gopkg.in/ini.v1"
 	"strk.kbt.io/projects/go/libravatar"
 )
@@ -283,6 +285,9 @@ var (
 
 	CSRFCookieName     = "_csrf"
 	CSRFCookieHTTPOnly = true
+
+	// BucketURL contains the location where to store avatars, attachments and lfs
+	BucketURL string
 
 	// Mirror settings
 	Mirror struct {
@@ -619,7 +624,7 @@ func NewContext() {
 	OfflineMode = sec.Key("OFFLINE_MODE").MustBool()
 	DisableRouterLog = sec.Key("DISABLE_ROUTER_LOG").MustBool()
 	StaticRootPath = sec.Key("STATIC_ROOT_PATH").MustString(AppWorkPath)
-	AppDataPath = sec.Key("APP_DATA_PATH").MustString("data")
+	AppDataPath = sec.Key("APP_DATA_PATH").MustString(path.Join(AppWorkPath, "data"))
 	EnableGzip = sec.Key("ENABLE_GZIP").MustBool()
 	EnablePprof = sec.Key("ENABLE_PPROF").MustBool(false)
 	PprofDataPath = sec.Key("PPROF_DATA_PATH").MustString(path.Join(AppWorkPath, "data/tmp/pprof"))
@@ -697,12 +702,6 @@ func NewContext() {
 	LFS.HTTPAuthExpiry = sec.Key("LFS_HTTP_AUTH_EXPIRY").MustDuration(20 * time.Minute)
 
 	if LFS.StartServer {
-		if filepath.IsAbs(LFS.ContentPath) {
-			if err := os.MkdirAll(LFS.ContentPath, 0700); err != nil {
-				log.Fatal("Failed to create '%s': %v", LFS.ContentPath, err)
-			}
-		}
-
 		LFS.JWTSecretBytes = make([]byte, 32)
 		n, err := base64.RawURLEncoding.Decode(LFS.JWTSecretBytes, []byte(LFS.JWTSecretBase64))
 
@@ -788,6 +787,11 @@ func NewContext() {
 	LogSQL = Cfg.Section("database").Key("LOG_SQL").MustBool(true)
 	DBConnectRetries = Cfg.Section("database").Key("DB_RETRIES").MustInt(10)
 	DBConnectBackoff = Cfg.Section("database").Key("DB_RETRY_BACKOFF").MustDuration(3 * time.Second)
+
+	sec = Cfg.Section("storage")
+	// Preferred: "gs://<bucket-name>
+	// Default Credential path for GoogleStorage => $HOME/.config/gcloud/application_default_credentials.json
+	BucketURL = sec.Key("BUCKET_URL").String()
 
 	sec = Cfg.Section("attachment")
 	AttachmentPath = sec.Key("PATH").MustString(path.Join("data", "attachments"))
@@ -1039,6 +1043,26 @@ func loadOrGenerateInternalToken(sec *ini.Section) string {
 	return token
 }
 
+func OpenBucket(ctx context.Context, path string) (*blob.Bucket, error) {
+	if filepath.IsAbs(path) {
+		if err := os.MkdirAll(path, 0700); err != nil {
+			log.Fatal("Failed to create '%s': %v", path, err)
+		}
+		return blob.OpenBucket(ctx, "file://"+path)
+	}
+
+	bURL := BucketURL
+	if bURL == "" {
+		bURL = "file://" + AppWorkPath
+	}
+
+	bucket, err := blob.OpenBucket(ctx, bURL)
+	if err != nil {
+		return nil, err
+	}
+	return blob.PrefixedBucket(bucket, path), nil
+}
+
 // NewServices initializes the services
 func NewServices() {
 	newService()
@@ -1051,5 +1075,4 @@ func NewServices() {
 	newNotifyMailService()
 	newWebhookService()
 	newIndexerService()
-	newFileStorage()
 }
