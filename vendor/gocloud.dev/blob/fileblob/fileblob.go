@@ -24,7 +24,7 @@
 //
 // Escaping
 //
-// Go CDK supports all UTF-8 strings; to make this work with providers lacking
+// Go CDK supports all UTF-8 strings; to make this work with services lacking
 // full UTF-8 support, strings must be escaped (during writes) and unescaped
 // (during reads). The following escapes are performed for fileblob:
 //  - Blob keys: ASCII characters 0-31 are escaped to "__0x<hex>__".
@@ -80,7 +80,13 @@ const Scheme = "file"
 // If os.PathSeparator != "/", any leading "/" from the path is dropped
 // and remaining '/' characters are converted to os.PathSeparator.
 //
-// No query options are supported. Examples:
+// The following query parameters are supported:
+//
+//   - base_url: the base URL to use to construct signed URLs; see URLSignerHMAC
+//   - secret_key_path: path to read for the secret key used to construct signed URLs;
+//     see URLSignerHMAC
+//
+// If either of these is provided, both must be.
 //
 //  - file:///a/directory
 //    -> Passes "/a/directory" to OpenBucket.
@@ -90,18 +96,54 @@ const Scheme = "file"
 //    -> Passes "c:\foo\bar".
 //  - file://localhost/c:/foo/bar on Windows.
 //    -> Also passes "c:\foo\bar".
-type URLOpener struct{}
+//  - file:///a/directory?base_url=/show&secret_key_path=secret.key
+//    -> Passes "/a/directory" to OpenBucket, and sets Options.URLSigner
+//       to a URLSignerHMAC initialized with base URL "/show" and secret key
+//       bytes read from the file "secret.key".
+type URLOpener struct {
+	// Options specifies the default options to pass to OpenBucket.
+	Options Options
+}
 
 // OpenBucketURL opens a blob.Bucket based on u.
-func (*URLOpener) OpenBucketURL(ctx context.Context, u *url.URL) (*blob.Bucket, error) {
-	for param := range u.Query() {
-		return nil, fmt.Errorf("open bucket %v: invalid query parameter %q", u, param)
-	}
+func (o *URLOpener) OpenBucketURL(ctx context.Context, u *url.URL) (*blob.Bucket, error) {
 	path := u.Path
 	if os.PathSeparator != '/' {
 		path = strings.TrimPrefix(path, "/")
 	}
-	return OpenBucket(filepath.FromSlash(path), nil)
+	opts, err := o.forParams(ctx, u.Query())
+	if err != nil {
+		return nil, fmt.Errorf("open bucket %v: %v", u, err)
+	}
+	return OpenBucket(filepath.FromSlash(path), opts)
+}
+
+func (o *URLOpener) forParams(ctx context.Context, q url.Values) (*Options, error) {
+	for k := range q {
+		if k != "base_url" && k != "secret_key_path" {
+			return nil, fmt.Errorf("invalid query parameter %q", k)
+		}
+	}
+	opts := new(Options)
+	*opts = o.Options
+
+	baseURL := q.Get("base_url")
+	keyPath := q.Get("secret_key_path")
+	if (baseURL == "") != (keyPath == "") {
+		return nil, errors.New("must supply both base_url and secret_key_path query parameters")
+	}
+	if baseURL != "" {
+		burl, err := url.Parse(baseURL)
+		if err != nil {
+			return nil, err
+		}
+		sk, err := ioutil.ReadFile(keyPath)
+		if err != nil {
+			return nil, err
+		}
+		opts.URLSigner = NewURLSignerHMAC(burl, sk)
+	}
+	return opts, nil
 }
 
 // Options sets options for constructing a *blob.Bucket backed by fileblob.
@@ -533,7 +575,7 @@ func (w *writer) Close() error {
 
 // Copy implements driver.Copy.
 func (b *bucket) Copy(ctx context.Context, dstKey, srcKey string, opts *driver.CopyOptions) error {
-	// Note: we could use NewRangedReader here, but since we need to copy all of
+	// Note: we could use NewRangeReader here, but since we need to copy all of
 	// the metadata (from xa), it's more efficient to do it directly.
 	srcPath, _, xa, err := b.forKey(srcKey)
 	if err != nil {
@@ -650,6 +692,7 @@ func (h *URLSignerHMAC) URLFromKey(ctx context.Context, key string, opts *driver
 	q := sURL.Query()
 	q.Set("obj", key)
 	q.Set("expiry", strconv.FormatInt(time.Now().Add(opts.Expiry).Unix(), 10))
+	q.Set("method", opts.Method)
 	q.Set("signature", h.getMAC(q))
 	sURL.RawQuery = q.Encode()
 
@@ -660,6 +703,7 @@ func (h *URLSignerHMAC) getMAC(q url.Values) string {
 	signedVals := url.Values{}
 	signedVals.Set("obj", q.Get("obj"))
 	signedVals.Set("expiry", q.Get("expiry"))
+	signedVals.Set("method", q.Get("method"))
 	msg := signedVals.Encode()
 
 	hsh := hmac.New(sha256.New, h.secretKey)
