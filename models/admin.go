@@ -8,12 +8,9 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
-
-	"code.gitea.io/gitea/modules/setting"
-	"gocloud.dev/blob"
 
 	"code.gitea.io/gitea/modules/log"
+	"code.gitea.io/gitea/modules/setting"
 	"code.gitea.io/gitea/modules/timeutil"
 
 	"github.com/Unknwon/com"
@@ -66,23 +63,10 @@ func RemoveAllWithNotice(title, path string) {
 }
 
 func removeAllFromBucket(bucketPath, objKey string) error {
-	var bucket *blob.Bucket
-	var err error
 	ctx := context.Background()
-	if filepath.IsAbs(bucketPath) {
-		if err := os.MkdirAll(bucketPath, 0700); err != nil {
-			log.Fatal("Failed to create '%s': %v", bucketPath, err)
-		}
-		bucket, err = blob.OpenBucket(ctx, "file://"+bucketPath)
-		if err != nil {
-			return err
-		}
-	} else {
-		bucket, err = blob.OpenBucket(ctx, setting.FileStorage.BucketURL)
-		if err != nil {
-			return err
-		}
-		bucket = blob.PrefixedBucket(bucket, setting.AttachmentPath)
+	bucket, err := setting.OpenBucket(ctx, bucketPath)
+	if err != nil {
+		return fmt.Errorf("could not open bucket: %v", err)
 	}
 	defer bucket.Close()
 

@@ -7,15 +7,18 @@ package migrations
 import (
 	"context"
 	"fmt"
-	"os"
 	"path"
-	"path/filepath"
 
 	"code.gitea.io/gitea/modules/log"
 	"code.gitea.io/gitea/modules/setting"
 
 	"github.com/go-xorm/xorm"
-	"gocloud.dev/blob"
+
+	// Google, Azure and S3 packages for bucket storage
+	_ "gocloud.dev/blob/azureblob"
+	_ "gocloud.dev/blob/fileblob"
+	_ "gocloud.dev/blob/gcsblob"
+	_ "gocloud.dev/blob/s3blob"
 )
 
 func addSizeToAttachment(x *xorm.Engine) error {
@@ -33,23 +36,10 @@ func addSizeToAttachment(x *xorm.Engine) error {
 		return fmt.Errorf("query attachments: %v", err)
 	}
 
-	var bucket *blob.Bucket
-	var err error
 	ctx := context.Background()
-	if filepath.IsAbs(setting.AttachmentPath) {
-		if err := os.MkdirAll(setting.AttachmentPath, 0700); err != nil {
-			log.Fatal("Failed to create '%s': %v", setting.AttachmentPath, err)
-		}
-		bucket, err = blob.OpenBucket(ctx, "file://"+setting.AttachmentPath)
-		if err != nil {
-			return fmt.Errorf("could not open bucket: %v", err)
-		}
-	} else {
-		bucket, err = blob.OpenBucket(ctx, setting.FileStorage.BucketURL)
-		if err != nil {
-			return fmt.Errorf("could not open bucket: %v", err)
-		}
-		bucket = blob.PrefixedBucket(bucket, setting.AttachmentPath)
+	bucket, err := setting.OpenBucket(ctx, setting.AttachmentPath)
+	if err != nil {
+		return fmt.Errorf("could not open bucket: %v", err)
 	}
 	defer bucket.Close()
 

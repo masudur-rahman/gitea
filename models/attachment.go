@@ -10,16 +10,13 @@ import (
 	"io"
 	"os"
 	"path"
-	"path/filepath"
 
-	"code.gitea.io/gitea/modules/log"
 	"code.gitea.io/gitea/modules/setting"
 	api "code.gitea.io/gitea/modules/structs"
 	"code.gitea.io/gitea/modules/timeutil"
 
 	"github.com/go-xorm/xorm"
 	gouuid "github.com/satori/go.uuid"
-	"gocloud.dev/blob"
 )
 
 // Attachment represent a attachment of issue/comment/release.
@@ -82,23 +79,10 @@ func (a *Attachment) DownloadURL() string {
 
 // UploadToBucket uploads attachments to bucket
 func (a *Attachment) UploadToBucket(buf []byte, file io.Reader) (*Attachment, error) {
-	var bucket *blob.Bucket
-	var err error
 	ctx := context.Background()
-	if filepath.IsAbs(setting.AttachmentPath) {
-		if err := os.MkdirAll(setting.AttachmentPath, 0700); err != nil {
-			log.Fatal("Failed to create '%s': %v", setting.AttachmentPath, err)
-		}
-		bucket, err = blob.OpenBucket(ctx, "file://"+setting.AttachmentPath)
-		if err != nil {
-			return nil, fmt.Errorf("could not open bucket: %v", err)
-		}
-	} else {
-		bucket, err = blob.OpenBucket(ctx, setting.FileStorage.BucketURL)
-		if err != nil {
-			return nil, fmt.Errorf("could not open bucket: %v", err)
-		}
-		bucket = blob.PrefixedBucket(bucket, setting.AttachmentPath)
+	bucket, err := setting.OpenBucket(ctx, setting.AttachmentPath)
+	if err != nil {
+		return nil, fmt.Errorf("could not open bucket: %v", err)
 	}
 	defer bucket.Close()
 
@@ -222,23 +206,10 @@ func getAttachmentByReleaseIDFileName(e Engine, releaseID int64, fileName string
 
 // Open provides attachment reader from bucket
 func (a *Attachment) Open() (io.ReadCloser, error) {
-	var bucket *blob.Bucket
-	var err error
 	ctx := context.Background()
-	if filepath.IsAbs(setting.AttachmentPath) {
-		if err := os.MkdirAll(setting.AttachmentPath, 0700); err != nil {
-			log.Fatal("Failed to create '%s': %v", setting.AttachmentPath, err)
-		}
-		bucket, err = blob.OpenBucket(ctx, "file://"+setting.AttachmentPath)
-		if err != nil {
-			return nil, fmt.Errorf("could not open bucket: %v", err)
-		}
-	} else {
-		bucket, err = blob.OpenBucket(ctx, setting.FileStorage.BucketURL)
-		if err != nil {
-			return nil, fmt.Errorf("could not open bucket: %v", err)
-		}
-		bucket = blob.PrefixedBucket(bucket, setting.AttachmentPath)
+	bucket, err := setting.OpenBucket(ctx, setting.AttachmentPath)
+	if err != nil {
+		return nil, fmt.Errorf("could not open bucket: %v", err)
 	}
 	defer bucket.Close()
 
@@ -254,23 +225,10 @@ func (a *Attachment) Open() (io.ReadCloser, error) {
 
 // deleteFromBucket deletes attachments from bucket
 func (a *Attachment) deleteFromBucket() error {
-	var bucket *blob.Bucket
-	var err error
 	ctx := context.Background()
-	if filepath.IsAbs(setting.AttachmentPath) {
-		if err := os.MkdirAll(setting.AttachmentPath, 0700); err != nil {
-			log.Fatal("Failed to create '%s': %v", setting.AttachmentPath, err)
-		}
-		bucket, err = blob.OpenBucket(ctx, "file://"+setting.AttachmentPath)
-		if err != nil {
-			return fmt.Errorf("could not open bucket: %v", err)
-		}
-	} else {
-		bucket, err = blob.OpenBucket(ctx, setting.FileStorage.BucketURL)
-		if err != nil {
-			return fmt.Errorf("could not open bucket: %v", err)
-		}
-		bucket = blob.PrefixedBucket(bucket, setting.AttachmentPath)
+	bucket, err := setting.OpenBucket(ctx, setting.AttachmentPath)
+	if err != nil {
+		return fmt.Errorf("could not open bucket: %v", err)
 	}
 	defer bucket.Close()
 

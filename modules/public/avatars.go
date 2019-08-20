@@ -4,14 +4,12 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"code.gitea.io/gitea/modules/setting"
 
-	"gocloud.dev/blob"
 	"gopkg.in/macaron.v1"
 )
 
@@ -52,26 +50,13 @@ func (opts *AvatarOptions) handle(ctx *macaron.Context, log *log.Logger) bool {
 	objPath := avatarURL.Query().Get("obj")
 	bucketURL := filepath.Dir(objPath) + "/"
 	objKey := filepath.Base(objPath)
-	var bucket *blob.Bucket
-	var err error
 
-	if filepath.IsAbs(objPath) {
-		if err := os.MkdirAll(bucketURL, 0700); err != nil {
-			log.Fatalf("Failed to create '%s': %v", bucketURL, err)
-		}
-		bucket, err = blob.OpenBucket(ctx.Req.Context(), "file://"+bucketURL)
-		if err != nil {
-			ctx.Resp.WriteHeader(http.StatusNotFound)
-			return true
-		}
-	} else {
-		bucket, err = blob.OpenBucket(ctx.Req.Context(), setting.FileStorage.BucketURL)
-		if err != nil {
-			ctx.Resp.WriteHeader(http.StatusNotFound)
-			return true
-		}
-		bucket = blob.PrefixedBucket(bucket, bucketURL)
+	bucket, err := setting.OpenBucket(ctx.Req.Context(), bucketURL)
+	if err != nil {
+		ctx.Resp.WriteHeader(http.StatusNotFound)
+		return true
 	}
+	defer bucket.Close()
 
 	attrs, err := bucket.Attributes(ctx.Req.Context(), objKey)
 	if err != nil {

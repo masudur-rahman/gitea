@@ -46,7 +46,7 @@ import (
 	"github.com/go-macaron/toolbox"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/tstranex/u2f"
-	"gopkg.in/macaron.v1"
+	macaron "gopkg.in/macaron.v1"
 )
 
 type routerLoggerOptions struct {
