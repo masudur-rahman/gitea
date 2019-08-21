@@ -73,15 +73,16 @@ const (
 // settings
 var (
 	// AppVer settings
-	AppVer         string
-	AppBuiltWith   string
-	AppName        string
-	AppURL         string
-	AppSubURL      string
-	AppSubURLDepth int // Number of slashes
-	AppPath        string
-	AppDataPath    string
-	AppWorkPath    string
+	AppVer          string
+	AppBuiltWith    string
+	AppName         string
+	AppURL          string
+	AppSubURL       string
+	AppSubURLDepth  int // Number of slashes
+	AppPath         string
+	AppDataPath     string
+	appDataUserPath string
+	AppWorkPath     string
 
 	// Server settings
 	Protocol             Scheme
@@ -701,7 +702,7 @@ func NewContext() {
 	if err = sec.MapTo(&LFS); err != nil {
 		log.Fatal("Failed to map LFS settings: %v", err)
 	}
-	LFS.ContentPath = sec.Key("LFS_CONTENT_PATH").MustString(filepath.Join("data", "lfs"))
+	LFS.ContentPath = sec.Key("LFS_CONTENT_PATH").MustString(filepath.Join(appDataUserPath, "lfs"))
 	forcePathSeparator(LFS.ContentPath)
 	LFS.ContentPath = suffixPathSeparator(LFS.ContentPath)
 
@@ -865,10 +866,10 @@ func NewContext() {
 	newRepository()
 
 	sec = Cfg.Section("picture")
-	AvatarUploadPath = sec.Key("AVATAR_UPLOAD_PATH").MustString(path.Join("data", "avatars"))
+	AvatarUploadPath = sec.Key("AVATAR_UPLOAD_PATH").MustString(path.Join(appDataUserPath, "avatars"))
 	forcePathSeparator(AvatarUploadPath)
 	AvatarUploadPath = suffixPathSeparator(AvatarUploadPath)
-	RepositoryAvatarUploadPath = sec.Key("REPOSITORY_AVATAR_UPLOAD_PATH").MustString(path.Join("data", "repo-avatars"))
+	RepositoryAvatarUploadPath = sec.Key("REPOSITORY_AVATAR_UPLOAD_PATH").MustString(path.Join(appDataUserPath, "repo-avatars"))
 	forcePathSeparator(RepositoryAvatarUploadPath)
 	RepositoryAvatarUploadPath = suffixPathSeparator(RepositoryAvatarUploadPath)
 	RepositoryAvatarFallback = sec.Key("REPOSITORY_AVATAR_FALLBACK").MustString("none")
@@ -1048,6 +1049,38 @@ func loadOrGenerateInternalToken(sec *ini.Section) string {
 	}
 	return token
 }
+
+/*
+- Path represents AttachmentPath, AvatarUploadPath, RepositoryAvatarUploadPath or LFS.ContentPath
+- corresponding default PathValues are : "attachments", "avatars", "repo-avatars" & "lfs"
+
+- appDataUserPath defaults to "data"
+
+There may be two scenarios:
+
+s1:
+Path is set in app.ini (rel or abs)
+
+s2:
+Path is unset in app.ini
+Path <= appDataUserPath + Path
+
+If appDataUserPath is set to abs in app.ini (via APP_DATA_PATH)
+	Path is abs
+Otherwise
+	Path is rel
+
+
+If Path is abs, the files will be read or stored to that abs Path even if the BUCKET_URL is set.
+Otherwise the following occurs,
+
+if BUCKET_URL NOT SET {
+	Path = file://{AppWorkPath}/{Path}
+} else {
+	Path is used as Bucket prefix
+}
+
+*/
 
 // OpenBucket returns the bucket associated to path parameter
 func OpenBucket(ctx context.Context, path string) (*blob.Bucket, error) {

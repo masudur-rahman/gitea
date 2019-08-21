@@ -795,6 +795,6 @@ TOKEN =
 
 [storage]
 ; URL of Bucket where files, such as, attachments, avatars, etc. are stored
-; If unset, file://<current_directory> is used to maintain backward compatibility
+; If unset, file://<AppWorkPath> is used to maintain backward compatibility
 ; Consult https://gocloud.dev/howto/blob/ for URL format for various cloud providers
 BUCKET_URL =
