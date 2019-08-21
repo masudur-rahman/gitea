@@ -631,6 +631,8 @@ func NewContext() {
 	DisableRouterLog = sec.Key("DISABLE_ROUTER_LOG").MustBool()
 	StaticRootPath = sec.Key("STATIC_ROOT_PATH").MustString(AppWorkPath)
 	AppDataPath = sec.Key("APP_DATA_PATH").MustString(path.Join(AppWorkPath, "data"))
+	appDataUserPath = sec.Key("APP_DATA_PATH").MustString("data")
+
 	EnableGzip = sec.Key("ENABLE_GZIP").MustBool()
 	EnablePprof = sec.Key("ENABLE_PPROF").MustBool(false)
 	PprofDataPath = sec.Key("PPROF_DATA_PATH").MustString(path.Join(AppWorkPath, "data/tmp/pprof"))
@@ -800,7 +802,7 @@ func NewContext() {
 	BucketURL = sec.Key("BUCKET_URL").String()
 
 	sec = Cfg.Section("attachment")
-	AttachmentPath = sec.Key("PATH").MustString(path.Join("data", "attachments"))
+	AttachmentPath = sec.Key("PATH").MustString(path.Join(appDataUserPath, "attachments"))
 	forcePathSeparator(AttachmentPath)
 	AttachmentPath = suffixPathSeparator(AttachmentPath)
 	AttachmentAllowedTypes = strings.Replace(sec.Key("ALLOWED_TYPES").MustString("image/jpeg,image/png,application/zip,application/gzip"), "|", ",", -1)
@@ -1048,6 +1050,26 @@ func loadOrGenerateInternalToken(sec *ini.Section) string {
 	}
 	return token
 }
+
+/*
+s1:
+AttachmentPath is abs (provided by user in app.ini)
+
+s2:
+AttachmentPath is unset in app.ini (defaults to "attachments") or set to rel path in app.ini
+APP_DATA_PATH is set to abs in app.ini
+path is abs: APP_DATA_PATH + AttachmentPath
+
+s3:
+AttachmentPath is unset in app.ini (defaults to "attachments") or set to rel path in app.ini
+APP_DATA_PATH is unset in app.ini (defaults to "data") or set to rel path in app.ini
+path is rel: appDataUserPath + AttachmentPath
+if BUCKET_URL NOT SET {
+	path = file://{AppWorkPath}/{path}
+} else {
+	Use path as Bucket prefix
+}
+*/
 
 // OpenBucket returns the bucket associated to path parameter
 func OpenBucket(ctx context.Context, path string) (*blob.Bucket, error) {
