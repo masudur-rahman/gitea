@@ -7,6 +7,7 @@ package models
 
 import (
 	"container/list"
+	"context"
 	"crypto/md5"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -14,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	_ "image/jpeg" // Needed for jpeg support
+	"image/png"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,6 +28,7 @@ import (
 	"code.gitea.io/gitea/modules/git"
 	"code.gitea.io/gitea/modules/log"
 	"code.gitea.io/gitea/modules/setting"
+	"code.gitea.io/gitea/modules/storage"
 	"code.gitea.io/gitea/modules/structs"
 	api "code.gitea.io/gitea/modules/structs"
 	"code.gitea.io/gitea/modules/timeutil"
@@ -344,13 +347,23 @@ func (u *User) generateRandomAvatar(e Engine) error {
 	if u.Avatar == "" {
 		u.Avatar = fmt.Sprintf("%d", u.ID)
 	}
-
-	if err := uploadImage(setting.AvatarUploadPath, u.Avatar, img); err != nil {
-		return err
+	fs := storage.FileStorage{
+		Ctx:      context.Background(),
+		Path:     setting.AvatarUploadPath,
+		FileName: u.Avatar,
 	}
+	fw, err := fs.NewWriter()
+	if err != nil {
+		return fmt.Errorf("Create: %v", err)
+	}
+	defer fw.Close()
 
 	if _, err := e.ID(u.ID).Cols("avatar").Update(u); err != nil {
 		return err
+	}
+
+	if err = png.Encode(fw, img); err != nil {
+		return fmt.Errorf("Encode: %v", err)
 	}
 
 	log.Info("New random avatar created: %d", u.ID)
@@ -364,14 +377,20 @@ func (u *User) SizedRelAvatarLink(size int) string {
 		return base.DefaultAvatarLink()
 	}
 
+	fs := storage.FileStorage{
+		Ctx:      context.Background(),
+		Path:     setting.AvatarUploadPath,
+		FileName: u.Avatar,
+	}
+
 	switch {
 	case u.UseCustomAvatar:
-		if !IsAvatarValid(setting.AvatarUploadPath, u.Avatar) {
+		if !fs.Exists() {
 			return base.DefaultAvatarLink()
 		}
 		return setting.AppSubURL + "/avatars?obj=" + u.CustomAvatarPath()
 	case setting.DisableGravatar, setting.OfflineMode:
-		if !IsAvatarValid(setting.AvatarUploadPath, u.Avatar) {
+		if !fs.Exists() {
 			if err := u.GenerateRandomAvatar(); err != nil {
 				log.Error("GenerateRandomAvatar: %v", err)
 			}
@@ -496,9 +515,22 @@ func (u *User) UploadAvatar(data []byte) error {
 		return fmt.Errorf("updateUser: %v", err)
 	}
 
-	if err := uploadImage(setting.AvatarUploadPath, u.Avatar, m); err != nil {
-		return err
+	fs := storage.FileStorage{
+		Ctx:      context.Background(),
+		Path:     setting.AvatarUploadPath,
+		FileName: u.Avatar,
 	}
+
+	fw, err := fs.NewWriter()
+	if err != nil {
+		return fmt.Errorf("Create: %v", err)
+	}
+	defer fw.Close()
+
+	if err = png.Encode(fw, *m); err != nil {
+		return fmt.Errorf("Encode: %v", err)
+	}
+
 	return sess.Commit()
 }
 
@@ -506,7 +538,12 @@ func (u *User) UploadAvatar(data []byte) error {
 func (u *User) DeleteAvatar() error {
 	log.Trace("DeleteAvatar[%d]: %s", u.ID, u.CustomAvatarPath())
 	if len(u.Avatar) > 0 {
-		if err := deleteAvatarFromBucket(setting.AvatarUploadPath, u.Avatar); err != nil {
+		fs := storage.FileStorage{
+			Ctx:      context.Background(),
+			Path:     setting.AvatarUploadPath,
+			FileName: u.Avatar,
+		}
+		if err := fs.Delete(); err != nil {
 			return err
 		}
 	}
@@ -1126,7 +1163,12 @@ func deleteUser(e *xorm.Session, u *User) error {
 	}
 
 	if len(u.Avatar) > 0 {
-		if err := deleteAvatarFromBucket(setting.AvatarUploadPath, u.Avatar); err != nil {
+		fs := storage.FileStorage{
+			Ctx:      context.Background(),
+			Path:     setting.AvatarUploadPath,
+			FileName: u.Avatar,
+		}
+		if err := fs.Delete(); err != nil {
 			return err
 		}
 	}

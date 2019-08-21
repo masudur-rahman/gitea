@@ -5,12 +5,10 @@
 package models
 
 import (
-	"context"
 	"fmt"
 	"os"
 
 	"code.gitea.io/gitea/modules/log"
-	"code.gitea.io/gitea/modules/setting"
 	"code.gitea.io/gitea/modules/timeutil"
 
 	"github.com/Unknwon/com"
@@ -60,23 +58,6 @@ func CreateRepositoryNotice(desc string) error {
 // creates a system notice when error occurs.
 func RemoveAllWithNotice(title, path string) {
 	removeAllWithNotice(x, title, path)
-}
-
-func removeAllFromBucket(bucketPath, objKey string) error {
-	ctx := context.Background()
-	bucket, err := setting.OpenBucket(ctx, bucketPath)
-	if err != nil {
-		return fmt.Errorf("could not open bucket: %v", err)
-	}
-	defer bucket.Close()
-
-	exist, err := bucket.Exists(ctx, objKey)
-	if err != nil {
-		return err
-	} else if exist {
-		return bucket.Delete(ctx, objKey)
-	}
-	return nil
 }
 
 func removeAllWithNotice(e Engine, title, path string) {

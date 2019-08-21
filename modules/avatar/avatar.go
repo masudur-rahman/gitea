@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"image"
 	"image/color/palette"
+
 	// Enable PNG support:
 	_ "image/png"
 	"math/rand"
@@ -52,7 +53,7 @@ func RandomImage(data []byte) (image.Image, error) {
 
 // Prepare accepts a byte slice as input, validates it contains an image of an
 // acceptable format, and crops and resizes it appropriately.
-func Prepare(data []byte) (image.Image, error) {
+func Prepare(data []byte) (*image.Image, error) {
 	imgCfg, _, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("DecodeConfig: %v", err)
@@ -90,5 +91,5 @@ func Prepare(data []byte) (image.Image, error) {
 	}
 
 	img = resize.Resize(AvatarSize, AvatarSize, img, resize.NearestNeighbor)
-	return img, nil
+	return &img, nil
 }

@@ -11,6 +11,7 @@ import (
 
 	"code.gitea.io/gitea/modules/log"
 	"code.gitea.io/gitea/modules/setting"
+	"code.gitea.io/gitea/modules/storage"
 
 	"github.com/go-xorm/xorm"
 )
@@ -30,16 +31,14 @@ func addSizeToAttachment(x *xorm.Engine) error {
 		return fmt.Errorf("query attachments: %v", err)
 	}
 
-	ctx := context.Background()
-	bucket, err := setting.OpenBucket(ctx, setting.AttachmentPath)
-	if err != nil {
-		return fmt.Errorf("could not open bucket: %v", err)
+	fs := storage.FileStorage{
+		Ctx:  context.Background(),
+		Path: setting.AttachmentPath,
 	}
-	defer bucket.Close()
 
 	for _, attach := range attachments {
-		basePath := path.Join(attach.UUID[0:1], attach.UUID[1:2], attach.UUID)
-		attrs, err := bucket.Attributes(ctx, basePath)
+		fs.FileName = path.Join(attach.UUID[0:1], attach.UUID[1:2], attach.UUID)
+		attrs, err := fs.Attributes()
 		if err != nil {
 			log.Error("calculate file size of attachment[UUID: %s]: %v", attach.UUID, err)
 			continue

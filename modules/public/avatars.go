@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"code.gitea.io/gitea/modules/setting"
+	"code.gitea.io/gitea/modules/storage"
 
 	"gopkg.in/macaron.v1"
 )
@@ -51,14 +51,13 @@ func (opts *AvatarOptions) handle(ctx *macaron.Context, log *log.Logger) bool {
 	bucketURL := filepath.Dir(objPath) + "/"
 	objKey := filepath.Base(objPath)
 
-	bucket, err := setting.OpenBucket(ctx.Req.Context(), bucketURL)
-	if err != nil {
-		ctx.Resp.WriteHeader(http.StatusNotFound)
-		return true
+	fs := storage.FileStorage{
+		Ctx:      ctx.Req.Context(),
+		Path:     bucketURL,
+		FileName: objKey,
 	}
-	defer bucket.Close()
 
-	attrs, err := bucket.Attributes(ctx.Req.Context(), objKey)
+	attrs, err := fs.Attributes()
 	if err != nil {
 		ctx.Resp.WriteHeader(http.StatusNotFound)
 		return true
@@ -79,13 +78,13 @@ func (opts *AvatarOptions) handle(ctx *macaron.Context, log *log.Logger) bool {
 		}
 	}
 
-	reader, err := bucket.NewReader(ctx.Req.Context(), objKey, nil)
+	fr, err := fs.NewReader()
 	if err != nil {
 		ctx.WriteHeader(http.StatusNotFound)
 		return true
 	}
-	defer reader.Close()
-	if _, err := io.Copy(ctx.Resp, reader); err != nil {
+	defer fr.Close()
+	if _, err := io.Copy(ctx.Resp, fr); err != nil {
 		ctx.WriteHeader(http.StatusNotFound)
 	}
 	return true

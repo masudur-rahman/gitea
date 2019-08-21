@@ -6,7 +6,6 @@
 package setting
 
 import (
-	"context"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -32,15 +31,8 @@ import (
 	"github.com/Unknwon/com"
 	shellquote "github.com/kballard/go-shellquote"
 	version "github.com/mcuadros/go-version"
-	"gocloud.dev/blob"
 	ini "gopkg.in/ini.v1"
 	"strk.kbt.io/projects/go/libravatar"
-
-	// Google, Azure and S3 packages for bucket storage
-	_ "gocloud.dev/blob/azureblob"
-	_ "gocloud.dev/blob/fileblob"
-	_ "gocloud.dev/blob/gcsblob"
-	_ "gocloud.dev/blob/s3blob"
 )
 
 // Scheme describes protocol types
@@ -632,6 +624,7 @@ func NewContext() {
 	DisableRouterLog = sec.Key("DISABLE_ROUTER_LOG").MustBool()
 	StaticRootPath = sec.Key("STATIC_ROOT_PATH").MustString(AppWorkPath)
 	AppDataPath = sec.Key("APP_DATA_PATH").MustString(path.Join(AppWorkPath, "data"))
+	appDataUserPath = sec.Key("APP_DATA_PATH").MustString("data")
 	EnableGzip = sec.Key("ENABLE_GZIP").MustBool()
 	EnablePprof = sec.Key("ENABLE_PPROF").MustBool(false)
 	PprofDataPath = sec.Key("PPROF_DATA_PATH").MustString(path.Join(AppWorkPath, "data/tmp/pprof"))
@@ -801,7 +794,7 @@ func NewContext() {
 	BucketURL = sec.Key("BUCKET_URL").String()
 
 	sec = Cfg.Section("attachment")
-	AttachmentPath = sec.Key("PATH").MustString(path.Join("data", "attachments"))
+	AttachmentPath = sec.Key("PATH").MustString(path.Join(appDataUserPath, "attachments"))
 	forcePathSeparator(AttachmentPath)
 	AttachmentPath = suffixPathSeparator(AttachmentPath)
 	AttachmentAllowedTypes = strings.Replace(sec.Key("ALLOWED_TYPES").MustString("image/jpeg,image/png,application/zip,application/gzip"), "|", ",", -1)
@@ -1048,59 +1041,6 @@ func loadOrGenerateInternalToken(sec *ini.Section) string {
 		}
 	}
 	return token
-}
-
-/*
-- Path represents AttachmentPath, AvatarUploadPath, RepositoryAvatarUploadPath or LFS.ContentPath
-- corresponding default PathValues are : "attachments", "avatars", "repo-avatars" & "lfs"
-
-- appDataUserPath defaults to "data"
-
-There may be two scenarios:
-
-s1:
-Path is set in app.ini (rel or abs)
-
-s2:
-Path is unset in app.ini
-Path <= appDataUserPath + Path
-
-If appDataUserPath is set to abs in app.ini (via APP_DATA_PATH)
-	Path is abs
-Otherwise
-	Path is rel
-
-
-If Path is abs, the files will be read or stored to that abs Path even if the BUCKET_URL is set.
-Otherwise the following occurs,
-
-if BUCKET_URL NOT SET {
-	Path = file://{AppWorkPath}/{Path}
-} else {
-	Path is used as Bucket prefix
-}
-
-*/
-
-// OpenBucket returns the bucket associated to path parameter
-func OpenBucket(ctx context.Context, path string) (*blob.Bucket, error) {
-	if filepath.IsAbs(path) {
-		if err := os.MkdirAll(path, 0700); err != nil {
-			log.Fatal("Failed to create '%s': %v", path, err)
-		}
-		return blob.OpenBucket(ctx, "file://"+path)
-	}
-
-	bURL := BucketURL
-	if bURL == "" {
-		bURL = "file://" + AppWorkPath
-	}
-
-	bucket, err := blob.OpenBucket(ctx, bURL)
-	if err != nil {
-		return nil, err
-	}
-	return blob.PrefixedBucket(bucket, path), nil
 }
 
 // NewServices initializes the services

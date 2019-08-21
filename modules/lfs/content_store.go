@@ -5,12 +5,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"io"
 	"path/filepath"
 
 	"code.gitea.io/gitea/models"
-	"code.gitea.io/gitea/modules/setting"
+	"code.gitea.io/gitea/modules/storage"
 )
 
 var (
@@ -26,14 +25,12 @@ type ContentStore struct {
 // Get takes a Meta object and retrieves the content from the store, returning
 // it as an io.Reader. If fromByte > 0, the reader starts from that byte
 func (s *ContentStore) Get(meta *models.LFSMetaObject, fromByte int64) (io.ReadCloser, error) {
-	ctx := context.Background()
-	bucket, err := setting.OpenBucket(ctx, s.BasePath)
-	if err != nil {
-		return nil, fmt.Errorf("could not open bucket: %v", err)
+	fs := storage.FileStorage{
+		Ctx:      context.Background(),
+		Path:     s.BasePath,
+		FileName: transformKey(meta.Oid),
 	}
-	defer bucket.Close()
-
-	reader, err := bucket.NewRangeReader(ctx, transformKey(meta.Oid), fromByte, -1, nil)
+	reader, err := fs.NewRangeReader(fromByte, -1)
 	if err != nil {
 		return nil, err
 	}
@@ -43,25 +40,26 @@ func (s *ContentStore) Get(meta *models.LFSMetaObject, fromByte int64) (io.ReadC
 
 // Put takes a Meta object and an io.Reader and writes the content to the store.
 func (s *ContentStore) Put(meta *models.LFSMetaObject, r io.Reader) error {
-	ctx := context.Background()
-	bucket, err := setting.OpenBucket(ctx, s.BasePath)
-	if err != nil {
-		return fmt.Errorf("could not open bucket: %v", err)
+	fs := storage.FileStorage{
+		Ctx:      context.Background(),
+		Path:     s.BasePath,
+		FileName: transformKey(meta.Oid),
 	}
-	defer bucket.Close()
 
-	bw, err := bucket.NewWriter(ctx, transformKey(meta.Oid), nil)
+	fw, err := fs.NewWriter()
 	if err != nil {
 		return err
 	}
 
 	hash := sha256.New()
-	hw := io.MultiWriter(hash, bw)
+	hw := io.MultiWriter(hash, fw)
 
 	written, err := io.Copy(hw, r)
 	if err != nil {
+		fw.Close()
 		return err
 	}
+	fw.Close()
 
 	if written != meta.Size {
 		return errSizeMismatch
@@ -72,38 +70,30 @@ func (s *ContentStore) Put(meta *models.LFSMetaObject, r io.Reader) error {
 		return errHashMismatch
 	}
 
-	return bw.Close()
+	return nil
 }
 
 // Exists returns true if the object exists in the content store.
 func (s *ContentStore) Exists(meta *models.LFSMetaObject) bool {
-	ctx := context.Background()
-	bucket, err := setting.OpenBucket(ctx, s.BasePath)
-	if err != nil {
-		return false
+	fs := storage.FileStorage{
+		Ctx:      context.Background(),
+		Path:     s.BasePath,
+		FileName: transformKey(meta.Oid),
 	}
-	defer bucket.Close()
 
-	exist, _ := bucket.Exists(ctx, transformKey(meta.Oid))
-	return exist
+	return fs.Exists()
 }
 
 // Verify returns true if the object exists in the content store and size is correct.
 func (s *ContentStore) Verify(meta *models.LFSMetaObject) (bool, error) {
-	ctx := context.Background()
-	bucket, err := setting.OpenBucket(ctx, s.BasePath)
-	if err != nil {
-		return false, fmt.Errorf("could not open bucket: %v", err)
+	fs := storage.FileStorage{
+		Ctx:      context.Background(),
+		Path:     s.BasePath,
+		FileName: transformKey(meta.Oid),
 	}
-	defer bucket.Close()
 
-	reader, err := bucket.NewReader(ctx, transformKey(meta.Oid), nil)
-	if err != nil {
-		return false, err
-	}
-	defer reader.Close()
-
-	if reader.Size() != meta.Size {
+	fi, err := fs.Attributes()
+	if err != nil || fi.Size != meta.Size {
 		return false, nil
 	}
 

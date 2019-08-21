@@ -8,10 +8,10 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"path"
 
 	"code.gitea.io/gitea/modules/setting"
+	"code.gitea.io/gitea/modules/storage"
 	api "code.gitea.io/gitea/modules/structs"
 	"code.gitea.io/gitea/modules/timeutil"
 
@@ -77,46 +77,36 @@ func (a *Attachment) DownloadURL() string {
 	return fmt.Sprintf("%sattachments/%s", setting.AppURL, a.UUID)
 }
 
-// UploadToBucket uploads attachments to bucket
-func (a *Attachment) UploadToBucket(buf []byte, file io.Reader) (*Attachment, error) {
-	ctx := context.Background()
-	bucket, err := setting.OpenBucket(ctx, setting.AttachmentPath)
-	if err != nil {
-		return nil, fmt.Errorf("could not open bucket: %v", err)
-	}
-	defer bucket.Close()
-
-	bw, err := bucket.NewWriter(ctx, a.AttachmentBasePath(), nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to obtain writer: %v", err)
-	}
-
-	if _, err = bw.Write(buf); err != nil {
-		return nil, fmt.Errorf("error occurred while writing: %v", err)
-	} else if _, err = io.Copy(bw, file); err != nil {
-		return nil, fmt.Errorf("error occurred while copying: %v", err)
-	}
-	if err = bw.Close(); err != nil {
-		return nil, fmt.Errorf("failed to close: %v", err)
-	}
-
-	attrs, err := bucket.Attributes(ctx, a.AttachmentBasePath())
-	if err != nil {
-		return nil, fmt.Errorf("failed to read attributes: %v", err)
-	}
-	a.Size = attrs.Size
-
-	return a, nil
-}
-
 // NewAttachment creates a new attachment object.
 func NewAttachment(attach *Attachment, buf []byte, file io.Reader) (_ *Attachment, err error) {
 	attach.UUID = gouuid.NewV4().String()
 
-	attach, err = attach.UploadToBucket(buf, file)
-	if err != nil {
-		return nil, err
+	fs := storage.FileStorage{
+		Ctx:      context.Background(),
+		Path:     setting.AttachmentPath,
+		FileName: attach.AttachmentBasePath(),
 	}
+
+	fw, err := fs.NewWriter()
+	if err != nil {
+		return nil, fmt.Errorf("Create: %v", err)
+	}
+
+	if _, err = fw.Write(buf); err != nil {
+		fw.Close()
+		return nil, fmt.Errorf("Write: %v", err)
+	} else if _, err = io.Copy(fw, file); err != nil {
+		fw.Close()
+		return nil, fmt.Errorf("Copy: %v", err)
+	}
+	fw.Close()
+
+	// Update file size
+	fi, err := fs.Attributes()
+	if err != nil {
+		return nil, fmt.Errorf("file size: %v", err)
+	}
+	attach.Size = fi.Size
 
 	if _, err := x.Insert(attach); err != nil {
 		return nil, err
@@ -204,44 +194,6 @@ func getAttachmentByReleaseIDFileName(e Engine, releaseID int64, fileName string
 	return attach, nil
 }
 
-// Open provides attachment reader from bucket
-func (a *Attachment) Open() (io.ReadCloser, error) {
-	ctx := context.Background()
-	bucket, err := setting.OpenBucket(ctx, setting.AttachmentPath)
-	if err != nil {
-		return nil, fmt.Errorf("could not open bucket: %v", err)
-	}
-	defer bucket.Close()
-
-	exist, err := bucket.Exists(ctx, a.AttachmentBasePath())
-	if err != nil {
-		return nil, err
-	} else if !exist {
-		return nil, os.ErrNotExist
-	}
-
-	return bucket.NewReader(ctx, a.AttachmentBasePath(), nil)
-}
-
-// deleteFromBucket deletes attachments from bucket
-func (a *Attachment) deleteFromBucket() error {
-	ctx := context.Background()
-	bucket, err := setting.OpenBucket(ctx, setting.AttachmentPath)
-	if err != nil {
-		return fmt.Errorf("could not open bucket: %v", err)
-	}
-	defer bucket.Close()
-
-	exist, err := bucket.Exists(ctx, a.AttachmentBasePath())
-	if err != nil {
-		return err
-	} else if !exist {
-		return os.ErrNotExist
-	}
-
-	return bucket.Delete(ctx, a.AttachmentBasePath())
-}
-
 // DeleteAttachment deletes the given attachment and optionally the associated file.
 func DeleteAttachment(a *Attachment, remove bool) error {
 	_, err := DeleteAttachments([]*Attachment{a}, remove)
@@ -266,7 +218,12 @@ func DeleteAttachments(attachments []*Attachment, remove bool) (int, error) {
 
 	if remove {
 		for i, a := range attachments {
-			if err := a.deleteFromBucket(); err != nil {
+			fs := storage.FileStorage{
+				Ctx:      context.Background(),
+				Path:     setting.AttachmentPath,
+				FileName: a.AttachmentBasePath(),
+			}
+			if err := fs.Delete(); err != nil {
 				return i, err
 			}
 		}

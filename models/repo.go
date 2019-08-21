@@ -7,6 +7,7 @@ package models
 
 import (
 	"bytes"
+	"context"
 	"crypto/md5"
 	"errors"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 
 	// Needed for jpeg support
 	_ "image/jpeg"
+	"image/png"
 	"io/ioutil"
 	"net/url"
 	"os"
@@ -31,6 +33,7 @@ import (
 	"code.gitea.io/gitea/modules/options"
 	"code.gitea.io/gitea/modules/process"
 	"code.gitea.io/gitea/modules/setting"
+	"code.gitea.io/gitea/modules/storage"
 	api "code.gitea.io/gitea/modules/structs"
 	"code.gitea.io/gitea/modules/sync"
 	"code.gitea.io/gitea/modules/timeutil"
@@ -1876,8 +1879,13 @@ func DeleteRepository(doer *User, uid, repoID int64) error {
 	}
 
 	// Remove attachment files.
+	fs := storage.FileStorage{
+		Ctx:  context.Background(),
+		Path: setting.AttachmentPath,
+	}
 	for i := range attachmentPaths {
-		if err := removeAllFromBucket(setting.AttachmentPath, attachmentPaths[i]); err != nil {
+		fs.FileName = attachmentPaths[i]
+		if err := fs.Delete(); err != nil {
 			title, attachPath := "Delete attachment", setting.AttachmentPath+attachmentPaths[i]
 			desc := fmt.Sprintf("%s [%s]: %v", title, attachPath, err)
 			log.Warn(title+" [%s]: %v", attachPath, err)
@@ -1892,7 +1900,10 @@ func DeleteRepository(doer *User, uid, repoID int64) error {
 	if err = sess.Where("repository_id=?", repoID).Find(&lfsObjects); err != nil {
 		return err
 	}
-
+	fs = storage.FileStorage{
+		Ctx:  context.Background(),
+		Path: setting.LFS.ContentPath,
+	}
 	for _, v := range lfsObjects {
 		count, err := sess.Count(&LFSMetaObject{Oid: v.Oid})
 		if err != nil {
@@ -1904,9 +1915,9 @@ func DeleteRepository(doer *User, uid, repoID int64) error {
 		}
 
 		oidPath := filepath.Join(v.Oid[0:2], v.Oid[2:4], v.Oid[4:len(v.Oid)])
-		removeAllWithNotice(sess, "Delete orphaned LFS file", oidPath)
-		if err := removeAllFromBucket(setting.LFS.ContentPath, oidPath); err != nil {
-			title := "Delete attachment"
+		fs.FileName = oidPath
+		if err := fs.Delete(); err != nil {
+			title := "Delete orphaned LFS file"
 			desc := fmt.Sprintf("%s [%s]: %v", title, oidPath, err)
 			log.Warn(title+" [%s]: %v", oidPath, err)
 			if err = createNotice(sess, NoticeRepository, desc); err != nil {
@@ -1948,7 +1959,12 @@ func DeleteRepository(doer *User, uid, repoID int64) error {
 	}
 
 	if len(repo.Avatar) > 0 {
-		if err := deleteAvatarFromBucket(setting.RepositoryAvatarUploadPath, repo.Avatar); err != nil {
+		fs := storage.FileStorage{
+			Ctx:      context.Background(),
+			Path:     setting.RepositoryAvatarUploadPath,
+			FileName: repo.Avatar,
+		}
+		if err := fs.Delete(); err != nil {
 			return err
 		}
 	}
@@ -2555,10 +2571,21 @@ func (repo *Repository) generateRandomAvatar(e Engine) error {
 	}
 
 	repo.Avatar = idToString
-	if err := uploadImage(setting.RepositoryAvatarUploadPath, repo.Avatar, img); err != nil {
-		return err
-	}
 
+	fs := storage.FileStorage{
+		Ctx:      context.Background(),
+		Path:     setting.RepositoryAvatarUploadPath,
+		FileName: repo.Avatar,
+	}
+	fw, err := fs.NewWriter()
+	if err != nil {
+		return fmt.Errorf("Create: %v", err)
+	}
+	defer fw.Close()
+
+	if err = png.Encode(fw, img); err != nil {
+		return fmt.Errorf("Encode: %v", err)
+	}
 	log.Info("New random avatar created for repository: %d", repo.ID)
 
 	if _, err := e.ID(repo.ID).Cols("avatar").NoAutoTime().Update(repo); err != nil {
@@ -2591,7 +2618,12 @@ func (repo *Repository) RelAvatarLink() string {
 func (repo *Repository) relAvatarLink(e Engine) string {
 	// If no avatar - path is empty
 	avatarPath := repo.CustomAvatarPath()
-	if len(avatarPath) == 0 || !IsAvatarValid(setting.RepositoryAvatarUploadPath, repo.Avatar) {
+	fs := storage.FileStorage{
+		Ctx:      context.Background(),
+		Path:     setting.RepositoryAvatarUploadPath,
+		FileName: repo.Avatar,
+	}
+	if len(avatarPath) == 0 || !fs.Exists() {
 		switch mode := setting.RepositoryAvatarFallback; mode {
 		case "image":
 			return setting.RepositoryAvatarFallbackImage
@@ -2638,22 +2670,32 @@ func (repo *Repository) UploadAvatar(data []byte) error {
 
 	// Users can upload the same image to other repo - prefix it with ID
 	// Then repo will be removed - only it avatar file will be removed
-	newAvatar := fmt.Sprintf("%d-%x", repo.ID, md5.Sum(data))
-	repo.Avatar = newAvatar
+	repo.Avatar = fmt.Sprintf("%d-%x", repo.ID, md5.Sum(data))
 	if _, err := sess.ID(repo.ID).Cols("avatar").Update(repo); err != nil {
 		return fmt.Errorf("UploadAvatar: Update repository avatar: %v", err)
 	}
 
-	if err := uploadImage(setting.RepositoryAvatarUploadPath, repo.Avatar, m); err != nil {
-		return err
+	fs := storage.FileStorage{
+		Ctx:      context.Background(),
+		Path:     setting.RepositoryAvatarUploadPath,
+		FileName: repo.Avatar,
+	}
+
+	fw, err := fs.NewWriter()
+	if err != nil {
+		return fmt.Errorf("UploadAvatar: Create file: %v", err)
+	}
+	defer fw.Close()
+
+	if err = png.Encode(fw, *m); err != nil {
+		return fmt.Errorf("UploadAvatar: Encode png: %v", err)
 	}
 
 	if len(oldAvatarPath) > 0 && oldAvatarPath != repo.CustomAvatarPath() {
-		repo.Avatar = oldAvatar
-		if err := deleteAvatarFromBucket(setting.RepositoryAvatarUploadPath, repo.Avatar); err != nil {
-			log.Trace("DeleteOldAvatar: ", err)
+		fs.FileName = oldAvatar
+		if err := fs.Delete(); err != nil {
+			return fmt.Errorf("UploadAvatar: Failed to remove old repo avatar %s: %v", oldAvatarPath, err)
 		}
-		repo.Avatar = newAvatar
 	}
 
 	return sess.Commit()
@@ -2675,9 +2717,13 @@ func (repo *Repository) DeleteAvatar() error {
 	if err := sess.Begin(); err != nil {
 		return err
 	}
-
-	if err := deleteAvatarFromBucket(setting.RepositoryAvatarUploadPath, repo.Avatar); err != nil {
-		return err
+	fs := storage.FileStorage{
+		Ctx:      context.Background(),
+		Path:     setting.RepositoryAvatarUploadPath,
+		FileName: repo.Avatar,
+	}
+	if err := fs.Delete(); err != nil {
+		return fmt.Errorf("DeleteAvatar: Failed to remove %s: %v", avatarPath, err)
 	}
 
 	repo.Avatar = ""

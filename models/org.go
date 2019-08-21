@@ -6,6 +6,7 @@
 package models
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -13,6 +14,7 @@ import (
 
 	"code.gitea.io/gitea/modules/log"
 	"code.gitea.io/gitea/modules/setting"
+	"code.gitea.io/gitea/modules/storage"
 	"code.gitea.io/gitea/modules/structs"
 
 	"github.com/go-xorm/xorm"
@@ -275,7 +277,12 @@ func deleteOrg(e *xorm.Session, u *User) error {
 
 	if len(u.Avatar) > 0 {
 		avatarPath := u.CustomAvatarPath()
-		if err := deleteAvatarFromBucket(setting.AvatarUploadPath, u.Avatar); err != nil {
+		fs := storage.FileStorage{
+			Ctx:      context.Background(),
+			Path:     setting.AvatarUploadPath,
+			FileName: u.Avatar,
+		}
+		if err := fs.Delete(); err != nil {
 			return fmt.Errorf("Failed to remove %s: %v", avatarPath, err)
 		}
 	}

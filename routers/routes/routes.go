@@ -22,6 +22,7 @@ import (
 	"code.gitea.io/gitea/modules/options"
 	"code.gitea.io/gitea/modules/public"
 	"code.gitea.io/gitea/modules/setting"
+	"code.gitea.io/gitea/modules/storage"
 	"code.gitea.io/gitea/modules/templates"
 	"code.gitea.io/gitea/modules/validation"
 	"code.gitea.io/gitea/routers"
@@ -479,19 +480,24 @@ func RegisterRoutes(m *macaron.Macaron) {
 				return
 			}
 
-			reader, err := attach.Open()
+			fs := storage.FileStorage{
+				Ctx:      ctx.Req.Context(),
+				Path:     setting.AttachmentPath,
+				FileName: attach.AttachmentBasePath(),
+			}
+			fr, err := fs.NewReader()
 			if err != nil {
 				ctx.ServerError("Open", err)
 				return
 			}
-			defer reader.Close()
+			defer fr.Close()
 
 			if err := attach.IncreaseDownloadCount(); err != nil {
 				ctx.ServerError("Update", err)
 				return
 			}
 
-			if err = repo.ServeData(ctx, attach.Name, reader); err != nil {
+			if err = repo.ServeData(ctx, attach.Name, fr); err != nil {
 				ctx.ServerError("ServeData", err)
 				return
 			}

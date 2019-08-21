@@ -31,8 +31,8 @@ func Test_PrepareWithPNG(t *testing.T) {
 	imgPtr, err := Prepare(data)
 	assert.NoError(t, err)
 
-	assert.Equal(t, 290, (imgPtr).Bounds().Max.X)
-	assert.Equal(t, 290, (imgPtr).Bounds().Max.Y)
+	assert.Equal(t, 290, (*imgPtr).Bounds().Max.X)
+	assert.Equal(t, 290, (*imgPtr).Bounds().Max.Y)
 }
 
 func Test_PrepareWithJPEG(t *testing.T) {
@@ -45,8 +45,8 @@ func Test_PrepareWithJPEG(t *testing.T) {
 	imgPtr, err := Prepare(data)
 	assert.NoError(t, err)
 
-	assert.Equal(t, 290, (imgPtr).Bounds().Max.X)
-	assert.Equal(t, 290, (imgPtr).Bounds().Max.Y)
+	assert.Equal(t, 290, (*imgPtr).Bounds().Max.X)
+	assert.Equal(t, 290, (*imgPtr).Bounds().Max.Y)
 }
 
 func Test_PrepareWithInvalidImage(t *testing.T) {

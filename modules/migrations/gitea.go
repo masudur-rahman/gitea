@@ -6,6 +6,7 @@
 package migrations
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -21,6 +22,7 @@ import (
 	"code.gitea.io/gitea/modules/log"
 	"code.gitea.io/gitea/modules/migrations/base"
 	"code.gitea.io/gitea/modules/setting"
+	"code.gitea.io/gitea/modules/storage"
 	"code.gitea.io/gitea/modules/timeutil"
 
 	gouuid "github.com/satori/go.uuid"
@@ -214,17 +216,22 @@ func (g *GiteaLocalUploader) CreateReleases(releases ...*base.Release) error {
 			}
 			defer resp.Body.Close()
 
-			buf := make([]byte, 1024)
-			n, _ := resp.Body.Read(buf)
-			if n > 0 {
-				buf = buf[:n]
+			fs := storage.FileStorage{
+				Ctx:      context.Background(),
+				Path:     setting.AttachmentPath,
+				FileName: attach.AttachmentBasePath(),
 			}
-			attachment, err := attach.UploadToBucket(buf, resp.Body)
+			fw, err := fs.NewWriter()
 			if err != nil {
+				return fmt.Errorf("Create: %v", err)
+			}
+			defer fw.Close()
+
+			if _, err := io.Copy(fw, resp.Body); err != nil {
 				return err
 			}
 
-			rel.Attachments = append(rel.Attachments, attachment)
+			rel.Attachments = append(rel.Attachments, &attach)
 		}
 
 		rels = append(rels, &rel)
