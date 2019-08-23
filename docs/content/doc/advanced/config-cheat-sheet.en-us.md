@@ -509,7 +509,7 @@ Two special environment variables are passed to the render command:
 
 ## Storage (`storage`)
 
-- `BUCKET_URL`: URL of Bucket where files, such as, attachments, avatars, etc. are stored. If unset, file://<current_directory> is used to maintain backward compatibility. Consult https://gocloud.dev/howto/blob/ for URL format for various cloud providers.
+- `BUCKET_URL`: URL of bucket where files are stored (such as attachments, avatars, etc.). If unset, `BUCKET_URL` defaults to `file:// <AppWorkPath>`. Consult https://gocloud.dev/howto/blob for URL format for various cloud providers and their credential paths and env variables.
 
 ## Other (`other`)
 
