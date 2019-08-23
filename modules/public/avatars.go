@@ -10,7 +10,7 @@ import (
 
 	"code.gitea.io/gitea/modules/storage"
 
-	"gopkg.in/macaron.v1"
+	"gitea.com/macaron/macaron"
 )
 
 // AvatarOptions represents the available options to configure the AvatarHandler.

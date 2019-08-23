@@ -19,7 +19,7 @@ import (
 	"code.gitea.io/gitea/modules/setting"
 	"code.gitea.io/gitea/modules/storage"
 
-	"github.com/Unknwon/i18n"
+	"github.com/unknwon/i18n"
 )
 
 const (
