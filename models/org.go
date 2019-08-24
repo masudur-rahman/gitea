@@ -485,8 +485,9 @@ func AddOrgUser(orgID, uid int64) error {
 	}
 
 	ou := &OrgUser{
-		UID:   uid,
-		OrgID: orgID,
+		UID:      uid,
+		OrgID:    orgID,
+		IsPublic: setting.Service.DefaultOrgMemberVisible,
 	}
 
 	if _, err := sess.Insert(ou); err != nil {
