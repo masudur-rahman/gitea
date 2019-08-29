@@ -3,7 +3,6 @@ module code.gitea.io/gitea
 go 1.12
 
 require (
-	cloud.google.com/go v0.44.3 // indirect
 	gitea.com/macaron/binding v0.0.0-20190822013154-a5f53841ed2b
 	gitea.com/macaron/cache v0.0.0-20190822004001-a6e7fee4ee76
 	gitea.com/macaron/captcha v0.0.0-20190822015246-daa973478bae
@@ -14,9 +13,8 @@ require (
 	gitea.com/macaron/macaron v1.3.3-0.20190821202302-9646c0587edb
 	gitea.com/macaron/session v0.0.0-20190821211443-122c47c5f705
 	gitea.com/macaron/toolbox v0.0.0-20190822013122-05ff0fc766b7
-	github.com/PuerkitoBio/goquery v0.0.0-20170324135448-ed7d758e9a34
+	github.com/PuerkitoBio/goquery v1.5.0
 	github.com/RoaringBitmap/roaring v0.4.7 // indirect
-	github.com/andybalholm/cascadia v0.0.0-20161224141413-349dd0209470 // indirect
 	github.com/bgentry/speakeasy v0.1.0 // indirect
 	github.com/blevesearch/bleve v0.0.0-20190214220507-05d86ea8f6e3
 	github.com/blevesearch/blevex v0.0.0-20180227211930-4b158bb555a3 // indirect
@@ -28,7 +26,7 @@ require (
 	github.com/cznic/b v0.0.0-20181122101859-a26611c4d92d // indirect
 	github.com/cznic/mathutil v0.0.0-20181122101859-297441e03548 // indirect
 	github.com/cznic/strutil v0.0.0-20181122101858-275e90344537 // indirect
-	github.com/denisenkom/go-mssqldb v0.0.0-20190724012636-11b2859924c1
+	github.com/denisenkom/go-mssqldb v0.0.0-20190820223206-44cdfe8d8ba9
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible
 	github.com/emirpasic/gods v1.12.0
 	github.com/etcd-io/bbolt v1.3.2 // indirect
@@ -50,7 +48,6 @@ require (
 	github.com/gogits/chardet v0.0.0-20150115103509-2404f7772561
 	github.com/gogs/cron v0.0.0-20171120032916-9f6c956d3e14
 	github.com/golang/snappy v0.0.1 // indirect
-	github.com/google/go-cmp v0.3.1 // indirect
 	github.com/google/go-github/v24 v24.0.1
 	github.com/gorilla/context v1.1.1
 	github.com/issue9/assert v1.3.2 // indirect
@@ -62,7 +59,7 @@ require (
 	github.com/klauspost/compress v0.0.0-20161025140425-8df558b6cb6f
 	github.com/klauspost/cpuid v0.0.0-20160302075316-09cded8978dc // indirect
 	github.com/klauspost/crc32 v0.0.0-20161016154125-cb6bfca970f6 // indirect
-	github.com/lafriks/xormstore v1.1.0
+	github.com/lafriks/xormstore v1.2.0
 	github.com/lib/pq v1.2.0
 	github.com/lunny/dingtalk_webhook v0.0.0-20171025031554-e3534c89ef96
 	github.com/lunny/levelqueue v0.0.0-20190217115915-02b525a4418e
@@ -110,7 +107,7 @@ require (
 	golang.org/x/oauth2 v0.0.0-20190604053449-0f29369cfe45
 	golang.org/x/sys v0.0.0-20190826190057-c7b8b68b1456
 	golang.org/x/text v0.3.2
-	golang.org/x/tools v0.0.0-20190827205025-b29f5f60c37a // indirect
+	golang.org/x/tools v0.0.0-20190828213141-aed303cbaa74 // indirect
 	gopkg.in/alexcesaro/quotedprintable.v3 v3.0.0-20150716171945-2caba252f4dc // indirect
 	gopkg.in/asn1-ber.v1 v1.0.0-20150924051756-4e86f4367175 // indirect
 	gopkg.in/editorconfig/editorconfig-core-go.v1 v1.3.0

@@ -41,11 +41,11 @@ github.com/Azure/azure-pipeline-go/pipeline
 github.com/Azure/azure-storage-blob-go/azblob
 # github.com/BurntSushi/toml v0.3.1
 github.com/BurntSushi/toml
-# github.com/PuerkitoBio/goquery v0.0.0-20170324135448-ed7d758e9a34
+# github.com/PuerkitoBio/goquery v1.5.0
 github.com/PuerkitoBio/goquery
 # github.com/RoaringBitmap/roaring v0.4.7
 github.com/RoaringBitmap/roaring
-# github.com/andybalholm/cascadia v0.0.0-20161224141413-349dd0209470
+# github.com/andybalholm/cascadia v1.0.0
 github.com/andybalholm/cascadia
 # github.com/anmitsu/go-shlex v0.0.0-20161002113705-648efa622239
 github.com/anmitsu/go-shlex
@@ -155,7 +155,7 @@ github.com/couchbase/vellum/utf8
 github.com/couchbaselabs/go-couchbase
 # github.com/davecgh/go-spew v1.1.1
 github.com/davecgh/go-spew/spew
-# github.com/denisenkom/go-mssqldb v0.0.0-20190724012636-11b2859924c1
+# github.com/denisenkom/go-mssqldb v0.0.0-20190820223206-44cdfe8d8ba9
 github.com/denisenkom/go-mssqldb
 github.com/denisenkom/go-mssqldb/internal/cp
 github.com/denisenkom/go-mssqldb/internal/querytext
@@ -230,7 +230,7 @@ github.com/gorilla/context
 github.com/gorilla/mux
 # github.com/gorilla/securecookie v1.1.1
 github.com/gorilla/securecookie
-# github.com/gorilla/sessions v1.1.1
+# github.com/gorilla/sessions v1.2.0
 github.com/gorilla/sessions
 # github.com/hashicorp/golang-lru v0.5.1
 github.com/hashicorp/golang-lru/simplelru
@@ -267,7 +267,7 @@ github.com/klauspost/compress/flate
 github.com/klauspost/cpuid
 # github.com/klauspost/crc32 v0.0.0-20161016154125-cb6bfca970f6
 github.com/klauspost/crc32
-# github.com/lafriks/xormstore v1.1.0
+# github.com/lafriks/xormstore v1.2.0
 github.com/lafriks/xormstore
 github.com/lafriks/xormstore/util
 # github.com/lib/pq v1.2.0
@@ -523,6 +523,7 @@ google.golang.org/api/gensupport
 google.golang.org/api/googleapi/transport
 google.golang.org/api/transport/http/internal/propagation
 # google.golang.org/appengine v1.6.1
+# google.golang.org/appengine v1.6.2
 google.golang.org/appengine/cloudsql
 google.golang.org/appengine/urlfetch
 google.golang.org/appengine/internal
