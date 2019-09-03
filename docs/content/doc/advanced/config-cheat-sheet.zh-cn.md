@@ -241,6 +241,10 @@ IS_INPUT_FILE = false
 - `FORMAT`: 显示在界面上的时间格式。比如： RFC1123 或者 2006-01-02 15:04:05
 - `DEFAULT_UI_LOCATION`: 默认显示在界面上的时区，默认为本地时区。比如： Asia/Shanghai
 
+## Storage (`storage`)
+
+- `BUCKET_URL`: 存储文件的存储桶的URL（例如附件，头像等）. 如果未设置，`BUCKET_URL`默认为`file：// <AppWorkPath>`. 有关各种云提供商及其凭证路径和env变量的URL格式，请参阅https://gocloud.dev/howto/blob .
+
 ## Other (`other`)
 
 - `SHOW_FOOTER_BRANDING`: 为真则在页面底部显示Gitea的字样。

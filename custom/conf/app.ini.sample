@@ -792,3 +792,9 @@ IS_INPUT_FILE = false
 ENABLED = false
 ; If you want to add authorization, specify a token here
 TOKEN =
+
+[storage]
+; URL of bucket where files are stored (such as attachments, avatars, etc.).
+; If unset, `BUCKET_URL` defaults to `file:// <AppWorkPath>`.
+; Consult https://gocloud.dev/howto/blob for URL format for various cloud providers and their credential paths and env variables.
+BUCKET_URL =

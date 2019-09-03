@@ -7,6 +7,7 @@ package models
 
 import (
 	"bytes"
+	"context"
 	"crypto/md5"
 	"errors"
 	"fmt"
@@ -32,6 +33,7 @@ import (
 	"code.gitea.io/gitea/modules/options"
 	"code.gitea.io/gitea/modules/process"
 	"code.gitea.io/gitea/modules/setting"
+	"code.gitea.io/gitea/modules/storage"
 	api "code.gitea.io/gitea/modules/structs"
 	"code.gitea.io/gitea/modules/sync"
 	"code.gitea.io/gitea/modules/timeutil"
@@ -1841,7 +1843,7 @@ func DeleteRepository(doer *User, uid, repoID int64) error {
 		return err
 	}
 	for j := range attachments {
-		attachmentPaths = append(attachmentPaths, attachments[j].LocalPath())
+		attachmentPaths = append(attachmentPaths, attachments[j].AttachmentBasePath())
 	}
 
 	if _, err = sess.In("issue_id", deleteCond).
@@ -1877,8 +1879,20 @@ func DeleteRepository(doer *User, uid, repoID int64) error {
 	}
 
 	// Remove attachment files.
+	fs := storage.FileStorage{
+		Ctx:  context.Background(),
+		Path: setting.AttachmentPath,
+	}
 	for i := range attachmentPaths {
-		removeAllWithNotice(sess, "Delete attachment", attachmentPaths[i])
+		fs.FileName = attachmentPaths[i]
+		if err := fs.Delete(); err != nil {
+			title, attachPath := "Delete attachment", setting.AttachmentPath+attachmentPaths[i]
+			desc := fmt.Sprintf("%s [%s]: %v", title, attachPath, err)
+			log.Warn(title+" [%s]: %v", attachPath, err)
+			if err = createNotice(sess, NoticeRepository, desc); err != nil {
+				log.Error("CreateRepositoryNotice: %v", err)
+			}
+		}
 	}
 
 	// Remove LFS objects
@@ -1886,7 +1900,10 @@ func DeleteRepository(doer *User, uid, repoID int64) error {
 	if err = sess.Where("repository_id=?", repoID).Find(&lfsObjects); err != nil {
 		return err
 	}
-
+	fs = storage.FileStorage{
+		Ctx:  context.Background(),
+		Path: setting.LFS.ContentPath,
+	}
 	for _, v := range lfsObjects {
 		count, err := sess.Count(&LFSMetaObject{Oid: v.Oid})
 		if err != nil {
@@ -1898,7 +1915,15 @@ func DeleteRepository(doer *User, uid, repoID int64) error {
 		}
 
 		oidPath := filepath.Join(v.Oid[0:2], v.Oid[2:4], v.Oid[4:len(v.Oid)])
-		removeAllWithNotice(sess, "Delete orphaned LFS file", oidPath)
+		fs.FileName = oidPath
+		if err := fs.Delete(); err != nil {
+			title := "Delete orphaned LFS file"
+			desc := fmt.Sprintf("%s [%s]: %v", title, oidPath, err)
+			log.Warn(title+" [%s]: %v", oidPath, err)
+			if err = createNotice(sess, NoticeRepository, desc); err != nil {
+				log.Error("CreateRepositoryNotice: %v", err)
+			}
+		}
 	}
 
 	if _, err := sess.Delete(&LFSMetaObject{RepositoryID: repoID}); err != nil {
@@ -1934,11 +1959,13 @@ func DeleteRepository(doer *User, uid, repoID int64) error {
 	}
 
 	if len(repo.Avatar) > 0 {
-		avatarPath := repo.CustomAvatarPath()
-		if com.IsExist(avatarPath) {
-			if err := os.Remove(avatarPath); err != nil {
-				return fmt.Errorf("Failed to remove %s: %v", avatarPath, err)
-			}
+		fs := storage.FileStorage{
+			Ctx:      context.Background(),
+			Path:     setting.RepositoryAvatarUploadPath,
+			FileName: repo.Avatar,
+		}
+		if err := fs.Delete(); err != nil {
+			return err
 		}
 	}
 
@@ -2544,10 +2571,13 @@ func (repo *Repository) generateRandomAvatar(e Engine) error {
 	}
 
 	repo.Avatar = idToString
-	if err = os.MkdirAll(filepath.Dir(repo.CustomAvatarPath()), os.ModePerm); err != nil {
-		return fmt.Errorf("MkdirAll: %v", err)
+
+	fs := storage.FileStorage{
+		Ctx:      context.Background(),
+		Path:     setting.RepositoryAvatarUploadPath,
+		FileName: repo.Avatar,
 	}
-	fw, err := os.Create(repo.CustomAvatarPath())
+	fw, err := fs.NewWriter()
 	if err != nil {
 		return fmt.Errorf("Create: %v", err)
 	}
@@ -2588,7 +2618,12 @@ func (repo *Repository) RelAvatarLink() string {
 func (repo *Repository) relAvatarLink(e Engine) string {
 	// If no avatar - path is empty
 	avatarPath := repo.CustomAvatarPath()
-	if len(avatarPath) == 0 || !com.IsFile(avatarPath) {
+	fs := storage.FileStorage{
+		Ctx:      context.Background(),
+		Path:     setting.RepositoryAvatarUploadPath,
+		FileName: repo.Avatar,
+	}
+	if len(avatarPath) == 0 || !fs.Exists() {
 		switch mode := setting.RepositoryAvatarFallback; mode {
 		case "image":
 			return setting.RepositoryAvatarFallbackImage
@@ -2601,7 +2636,7 @@ func (repo *Repository) relAvatarLink(e Engine) string {
 			return ""
 		}
 	}
-	return setting.AppSubURL + "/repo-avatars/" + repo.Avatar
+	return setting.AppSubURL + "/avatars?obj=" + repo.CustomAvatarPath()
 }
 
 // avatarLink returns user avatar absolute link.
@@ -2630,6 +2665,7 @@ func (repo *Repository) UploadAvatar(data []byte) error {
 		return err
 	}
 
+	oldAvatar := repo.Avatar
 	oldAvatarPath := repo.CustomAvatarPath()
 
 	// Users can upload the same image to other repo - prefix it with ID
@@ -2639,11 +2675,13 @@ func (repo *Repository) UploadAvatar(data []byte) error {
 		return fmt.Errorf("UploadAvatar: Update repository avatar: %v", err)
 	}
 
-	if err := os.MkdirAll(setting.RepositoryAvatarUploadPath, os.ModePerm); err != nil {
-		return fmt.Errorf("UploadAvatar: Failed to create dir %s: %v", setting.RepositoryAvatarUploadPath, err)
+	fs := storage.FileStorage{
+		Ctx:      context.Background(),
+		Path:     setting.RepositoryAvatarUploadPath,
+		FileName: repo.Avatar,
 	}
 
-	fw, err := os.Create(repo.CustomAvatarPath())
+	fw, err := fs.NewWriter()
 	if err != nil {
 		return fmt.Errorf("UploadAvatar: Create file: %v", err)
 	}
@@ -2654,7 +2692,8 @@ func (repo *Repository) UploadAvatar(data []byte) error {
 	}
 
 	if len(oldAvatarPath) > 0 && oldAvatarPath != repo.CustomAvatarPath() {
-		if err := os.Remove(oldAvatarPath); err != nil {
+		fs.FileName = oldAvatar
+		if err := fs.Delete(); err != nil {
 			return fmt.Errorf("UploadAvatar: Failed to remove old repo avatar %s: %v", oldAvatarPath, err)
 		}
 	}
@@ -2678,20 +2717,20 @@ func (repo *Repository) DeleteAvatar() error {
 	if err := sess.Begin(); err != nil {
 		return err
 	}
+	fs := storage.FileStorage{
+		Ctx:      context.Background(),
+		Path:     setting.RepositoryAvatarUploadPath,
+		FileName: repo.Avatar,
+	}
+	if err := fs.Delete(); err != nil {
+		return fmt.Errorf("DeleteAvatar: Failed to remove %s: %v", avatarPath, err)
+	}
 
 	repo.Avatar = ""
 	if _, err := sess.ID(repo.ID).Cols("avatar").Update(repo); err != nil {
 		return fmt.Errorf("DeleteAvatar: Update repository avatar: %v", err)
 	}
 
-	if _, err := os.Stat(avatarPath); err == nil {
-		if err := os.Remove(avatarPath); err != nil {
-			return fmt.Errorf("DeleteAvatar: Failed to remove %s: %v", avatarPath, err)
-		}
-	} else {
-		// // Schrodinger: file may or may not exist. See err for details.
-		log.Trace("DeleteAvatar[%d]: %v", err)
-	}
 	return sess.Commit()
 }
 

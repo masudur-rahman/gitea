@@ -507,6 +507,10 @@ Two special environment variables are passed to the render command:
 - `FORMAT`: Time format to diplay on UI. i.e. RFC1123 or 2006-01-02 15:04:05
 - `DEFAULT_UI_LOCATION`: Default location of time on the UI, so that we can display correct user's time on UI. i.e. Shanghai/Asia
 
+## Storage (`storage`)
+
+- `BUCKET_URL`: URL of bucket where files are stored (such as attachments, avatars, etc.). If unset, `BUCKET_URL` defaults to `file:// <AppWorkPath>`. Consult https://gocloud.dev/howto/blob for URL format for various cloud providers and their credential paths and env variables.
+
 ## Other (`other`)
 
 - `SHOW_FOOTER_BRANDING`: **false**: Show Gitea branding in the footer.

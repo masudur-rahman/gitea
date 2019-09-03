@@ -8,7 +8,6 @@ import (
 	"bytes"
 	"encoding/gob"
 	"net/http"
-	"os"
 	"path"
 	"text/template"
 	"time"
@@ -23,6 +22,7 @@ import (
 	"code.gitea.io/gitea/modules/options"
 	"code.gitea.io/gitea/modules/public"
 	"code.gitea.io/gitea/modules/setting"
+	"code.gitea.io/gitea/modules/storage"
 	"code.gitea.io/gitea/modules/templates"
 	"code.gitea.io/gitea/modules/validation"
 	"code.gitea.io/gitea/routers"
@@ -147,18 +147,9 @@ func NewMacaron() *macaron.Macaron {
 			ExpiresAfter: time.Hour * 6,
 		},
 	))
-	m.Use(public.StaticHandler(
-		setting.AvatarUploadPath,
-		&public.Options{
+	m.Use(public.AvatarHandler(
+		&public.AvatarOptions{
 			Prefix:       "avatars",
-			SkipLogging:  setting.DisableRouterLog,
-			ExpiresAfter: time.Hour * 6,
-		},
-	))
-	m.Use(public.StaticHandler(
-		setting.RepositoryAvatarUploadPath,
-		&public.Options{
-			Prefix:       "repo-avatars",
 			SkipLogging:  setting.DisableRouterLog,
 			ExpiresAfter: time.Hour * 6,
 		},
@@ -489,7 +480,12 @@ func RegisterRoutes(m *macaron.Macaron) {
 				return
 			}
 
-			fr, err := os.Open(attach.LocalPath())
+			fs := storage.FileStorage{
+				Ctx:      ctx.Req.Context(),
+				Path:     setting.AttachmentPath,
+				FileName: attach.AttachmentBasePath(),
+			}
+			fr, err := fs.NewReader()
 			if err != nil {
 				ctx.ServerError("Open", err)
 				return

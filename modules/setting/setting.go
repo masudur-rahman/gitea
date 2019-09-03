@@ -65,15 +65,16 @@ const (
 // settings
 var (
 	// AppVer settings
-	AppVer         string
-	AppBuiltWith   string
-	AppName        string
-	AppURL         string
-	AppSubURL      string
-	AppSubURLDepth int // Number of slashes
-	AppPath        string
-	AppDataPath    string
-	AppWorkPath    string
+	AppVer          string
+	AppBuiltWith    string
+	AppName         string
+	AppURL          string
+	AppSubURL       string
+	AppSubURLDepth  int // Number of slashes
+	AppPath         string
+	AppDataPath     string
+	appDataUserPath string
+	AppWorkPath     string
 
 	// Server settings
 	Protocol             Scheme
@@ -284,6 +285,9 @@ var (
 	CSRFCookieName     = "_csrf"
 	CSRFCookieHTTPOnly = true
 
+	// BucketURL contains the location where to store avatars, attachments and lfs
+	BucketURL string
+
 	// Mirror settings
 	Mirror struct {
 		DefaultInterval time.Duration
@@ -423,6 +427,14 @@ func forcePathSeparator(path string) {
 	if strings.Contains(path, "\\") {
 		log.Fatal("Do not use '\\' or '\\\\' in paths, instead, please use '/' in all places")
 	}
+}
+
+func suffixPathSeparator(path string) string {
+	path = strings.TrimSuffix(strings.TrimSpace(path), "/")
+	if path == "" {
+		return path
+	}
+	return path + "/"
 }
 
 // IsRunUserMatchCurrentUser returns false if configured run user does not match
@@ -612,6 +624,7 @@ func NewContext() {
 	DisableRouterLog = sec.Key("DISABLE_ROUTER_LOG").MustBool()
 	StaticRootPath = sec.Key("STATIC_ROOT_PATH").MustString(AppWorkPath)
 	AppDataPath = sec.Key("APP_DATA_PATH").MustString(path.Join(AppWorkPath, "data"))
+	appDataUserPath = sec.Key("APP_DATA_PATH").MustString("data")
 	EnableGzip = sec.Key("ENABLE_GZIP").MustBool()
 	EnablePprof = sec.Key("ENABLE_PPROF").MustBool(false)
 	PprofDataPath = sec.Key("PPROF_DATA_PATH").MustString(path.Join(AppWorkPath, "data/tmp/pprof"))
@@ -682,18 +695,13 @@ func NewContext() {
 	if err = sec.MapTo(&LFS); err != nil {
 		log.Fatal("Failed to map LFS settings: %v", err)
 	}
-	LFS.ContentPath = sec.Key("LFS_CONTENT_PATH").MustString(filepath.Join(AppDataPath, "lfs"))
-	if !filepath.IsAbs(LFS.ContentPath) {
-		LFS.ContentPath = filepath.Join(AppWorkPath, LFS.ContentPath)
-	}
+	LFS.ContentPath = sec.Key("LFS_CONTENT_PATH").MustString(filepath.Join(appDataUserPath, "lfs"))
+	forcePathSeparator(LFS.ContentPath)
+	LFS.ContentPath = suffixPathSeparator(LFS.ContentPath)
 
 	LFS.HTTPAuthExpiry = sec.Key("LFS_HTTP_AUTH_EXPIRY").MustDuration(20 * time.Minute)
 
 	if LFS.StartServer {
-		if err := os.MkdirAll(LFS.ContentPath, 0700); err != nil {
-			log.Fatal("Failed to create '%s': %v", LFS.ContentPath, err)
-		}
-
 		LFS.JWTSecretBytes = make([]byte, 32)
 		n, err := base64.RawURLEncoding.Decode(LFS.JWTSecretBytes, []byte(LFS.JWTSecretBase64))
 
@@ -780,11 +788,15 @@ func NewContext() {
 	DBConnectRetries = Cfg.Section("database").Key("DB_RETRIES").MustInt(10)
 	DBConnectBackoff = Cfg.Section("database").Key("DB_RETRY_BACKOFF").MustDuration(3 * time.Second)
 
+	sec = Cfg.Section("storage")
+	// Preferred: "gs://<bucket-name>
+	// Default Credential path for GoogleStorage => $HOME/.config/gcloud/application_default_credentials.json
+	BucketURL = sec.Key("BUCKET_URL").String()
+
 	sec = Cfg.Section("attachment")
-	AttachmentPath = sec.Key("PATH").MustString(path.Join(AppDataPath, "attachments"))
-	if !filepath.IsAbs(AttachmentPath) {
-		AttachmentPath = path.Join(AppWorkPath, AttachmentPath)
-	}
+	AttachmentPath = sec.Key("PATH").MustString(path.Join(appDataUserPath, "attachments"))
+	forcePathSeparator(AttachmentPath)
+	AttachmentPath = suffixPathSeparator(AttachmentPath)
 	AttachmentAllowedTypes = strings.Replace(sec.Key("ALLOWED_TYPES").MustString("image/jpeg,image/png,application/zip,application/gzip"), "|", ",", -1)
 	AttachmentMaxSize = sec.Key("MAX_SIZE").MustInt64(4)
 	AttachmentMaxFiles = sec.Key("MAX_FILES").MustInt(5)
@@ -847,16 +859,12 @@ func NewContext() {
 	newRepository()
 
 	sec = Cfg.Section("picture")
-	AvatarUploadPath = sec.Key("AVATAR_UPLOAD_PATH").MustString(path.Join(AppDataPath, "avatars"))
+	AvatarUploadPath = sec.Key("AVATAR_UPLOAD_PATH").MustString(path.Join(appDataUserPath, "avatars"))
 	forcePathSeparator(AvatarUploadPath)
-	if !filepath.IsAbs(AvatarUploadPath) {
-		AvatarUploadPath = path.Join(AppWorkPath, AvatarUploadPath)
-	}
-	RepositoryAvatarUploadPath = sec.Key("REPOSITORY_AVATAR_UPLOAD_PATH").MustString(path.Join(AppDataPath, "repo-avatars"))
+	AvatarUploadPath = suffixPathSeparator(AvatarUploadPath)
+	RepositoryAvatarUploadPath = sec.Key("REPOSITORY_AVATAR_UPLOAD_PATH").MustString(path.Join(appDataUserPath, "repo-avatars"))
 	forcePathSeparator(RepositoryAvatarUploadPath)
-	if !filepath.IsAbs(RepositoryAvatarUploadPath) {
-		RepositoryAvatarUploadPath = path.Join(AppWorkPath, RepositoryAvatarUploadPath)
-	}
+	RepositoryAvatarUploadPath = suffixPathSeparator(RepositoryAvatarUploadPath)
 	RepositoryAvatarFallback = sec.Key("REPOSITORY_AVATAR_FALLBACK").MustString("none")
 	RepositoryAvatarFallbackImage = sec.Key("REPOSITORY_AVATAR_FALLBACK_IMAGE").MustString("/img/repo_default.png")
 	AvatarMaxWidth = sec.Key("AVATAR_MAX_WIDTH").MustInt(4096)
